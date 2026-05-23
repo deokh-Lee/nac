@@ -40,11 +40,15 @@ public class ElecDocExtractService {
     }
 
     public ExtractBatchResult extractBatch(String transferYear, Integer limit, Integer offset) {
+        return extractBatch(transferYear, limit, offset, false);
+    }
+
+    public ExtractBatchResult extractBatch(String transferYear, Integer limit, Integer offset, boolean retryFail) {
         String targetYear = StringUtils.hasText(transferYear) ? transferYear : properties.getDefaultTransferYear();
         int targetLimit = limit == null || limit <= 0 ? properties.getBatchSize() : limit;
         int targetOffset = offset == null || offset < 0 ? 0 : offset;
 
-        List<CnElecDoc> documents = elecDocMapper.findTargetDocuments(targetYear, targetLimit, targetOffset);
+        List<CnElecDoc> documents = elecDocMapper.findTargetDocuments(targetYear, targetLimit, targetOffset, retryFail);
 
         int successCount = 0;
         int failCount = 0;
@@ -71,6 +75,56 @@ public class ElecDocExtractService {
                 documents.size(),
                 successCount,
                 failCount
+        );
+    }
+
+    public ExtractAllBatchResult extractAll(String transferYear, Integer limit, Integer maxLoop, Boolean retryFail) {
+        String targetYear = StringUtils.hasText(transferYear) ? transferYear : properties.getDefaultTransferYear();
+        int batchSize = limit == null || limit <= 0 ? properties.getBatchSize() : limit;
+        int loopLimit = maxLoop == null || maxLoop <= 0 ? 10_000 : maxLoop;
+        boolean shouldRetryFail = Boolean.TRUE.equals(retryFail);
+
+        int loopCount = 0;
+        int totalTargetCount = 0;
+        int totalSuccessCount = 0;
+        int totalFailCount = 0;
+        boolean completed = false;
+
+        while (loopCount < loopLimit) {
+            loopCount++;
+
+            ExtractBatchResult result = extractBatch(targetYear, batchSize, 0, shouldRetryFail);
+            totalTargetCount += result.targetCount();
+            totalSuccessCount += result.successCount();
+            totalFailCount += result.failCount();
+
+            log.info("extract/all loop#{} | year={} | batchSize={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
+                    loopCount,
+                    targetYear,
+                    batchSize,
+                    result.targetCount(),
+                    result.successCount(),
+                    result.failCount(),
+                    totalTargetCount,
+                    totalSuccessCount,
+                    totalFailCount);
+
+            if (result.targetCount() == 0) {
+                completed = true;
+                break;
+            }
+        }
+
+        return new ExtractAllBatchResult(
+                targetYear,
+                batchSize,
+                loopLimit,
+                shouldRetryFail,
+                loopCount,
+                totalTargetCount,
+                totalSuccessCount,
+                totalFailCount,
+                completed
         );
     }
 
