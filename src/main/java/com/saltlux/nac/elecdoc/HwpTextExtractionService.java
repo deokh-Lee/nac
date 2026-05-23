@@ -8,7 +8,10 @@ import kr.dogfoot.hwplib.object.HWPFile;
 import kr.dogfoot.hwplib.object.bindata.EmbeddedBinaryData;
 import kr.dogfoot.hwplib.object.bodytext.Section;
 import kr.dogfoot.hwplib.object.bodytext.control.Control;
+import kr.dogfoot.hwplib.object.bodytext.control.ControlTable;
 import kr.dogfoot.hwplib.object.bodytext.control.gso.ControlPicture;
+import kr.dogfoot.hwplib.object.bodytext.control.table.Cell;
+import kr.dogfoot.hwplib.object.bodytext.control.table.Row;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.Paragraph;
 import kr.dogfoot.hwplib.reader.HWPReader;
 import org.springframework.stereotype.Service;
@@ -26,15 +29,15 @@ public class HwpTextExtractionService {
         HWPFile hwpFile = HWPReader.fromFile(path.toFile());
 
         HwpImageTagResult imageTagResult = extractImages(hwpFile, imageContext);
-        String contents = extractTextWithImageTags(hwpFile, imageTagResult.imageTags());
+        ExtractionCursor cursor = new ExtractionCursor(imageTagResult.imageTags());
+        String contents = extractTextWithImageTags(hwpFile, cursor);
         boolean hasContents = contents != null && !contents.isBlank();
 
         return new TextExtractionResult(contents, "application/x-hwp", hasContents, imageTagResult.imgDatasJson());
     }
 
-    private String extractTextWithImageTags(HWPFile hwpFile, List<String> imageTags) throws Exception {
+    private String extractTextWithImageTags(HWPFile hwpFile, ExtractionCursor cursor) throws Exception {
         StringBuilder sb = new StringBuilder();
-        int imageIndex = 0;
 
         if (hwpFile.getBodyText() == null || hwpFile.getBodyText().getSectionList() == null) {
             return "";
@@ -46,48 +49,103 @@ public class HwpTextExtractionService {
             }
 
             for (Paragraph paragraph : section.getParagraphs()) {
-                if (paragraph == null) {
-                    continue;
-                }
-
-                String text = paragraph.getNormalString();
-                if (text != null && !text.isBlank()) {
-                    sb.append(text);
-                }
-
-                int pictureCount = countPictureControls(paragraph);
-                for (int i = 0; i < pictureCount && imageIndex < imageTags.size(); i++) {
-                    if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n') {
-                        sb.append('\n');
-                    }
-                    sb.append(imageTags.get(imageIndex++)).append('\n');
-                }
-
-                if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n') {
-                    sb.append('\n');
-                }
+                appendParagraph(sb, paragraph, cursor);
             }
         }
 
-        while (imageIndex < imageTags.size()) {
-            sb.append(imageTags.get(imageIndex++)).append('\n');
-        }
-
+        appendRemainingImageTags(sb, cursor);
         return sb.toString();
     }
 
-    private int countPictureControls(Paragraph paragraph) {
-        if (paragraph.getControlList() == null || paragraph.getControlList().isEmpty()) {
-            return 0;
+    private void appendParagraph(StringBuilder sb, Paragraph paragraph, ExtractionCursor cursor) throws Exception {
+        if (paragraph == null) {
+            return;
         }
 
-        int count = 0;
+        String text = paragraph.getNormalString();
+        if (text != null && !text.isBlank()) {
+            appendLine(sb, text);
+        }
+
+        appendControls(sb, paragraph, cursor);
+    }
+
+    private void appendControls(StringBuilder sb, Paragraph paragraph, ExtractionCursor cursor) throws Exception {
+        if (paragraph.getControlList() == null || paragraph.getControlList().isEmpty()) {
+            return;
+        }
+
         for (Control control : paragraph.getControlList()) {
             if (control instanceof ControlPicture) {
-                count++;
+                String imageTag = cursor.nextImageTag();
+                if (imageTag != null) {
+                    appendLine(sb, imageTag);
+                }
+            } else if (control instanceof ControlTable table) {
+                appendTable(sb, table, cursor);
             }
         }
-        return count;
+    }
+
+    private void appendTable(StringBuilder sb, ControlTable table, ExtractionCursor cursor) throws Exception {
+        if (table.getRowList() == null || table.getRowList().isEmpty()) {
+            return;
+        }
+
+        for (Row row : table.getRowList()) {
+            if (row == null || row.getCellList() == null) {
+                continue;
+            }
+
+            StringBuilder rowText = new StringBuilder();
+            for (Cell cell : row.getCellList()) {
+                if (cell == null || cell.getParagraphList() == null || cell.getParagraphList().getParagraphs() == null) {
+                    continue;
+                }
+
+                StringBuilder cellText = new StringBuilder();
+                for (Paragraph cellParagraph : cell.getParagraphList().getParagraphs()) {
+                    String before = sb.toString();
+                    StringBuilder temp = new StringBuilder();
+                    appendParagraph(temp, cellParagraph, cursor);
+                    String value = temp.toString().trim();
+                    if (!value.isBlank()) {
+                        if (!cellText.isEmpty()) {
+                            cellText.append(' ');
+                        }
+                        cellText.append(value.replace('\n', ' ').trim());
+                    }
+                }
+
+                if (!cellText.isEmpty()) {
+                    if (!rowText.isEmpty()) {
+                        rowText.append(" | ");
+                    }
+                    rowText.append(cellText);
+                }
+            }
+
+            if (!rowText.isEmpty()) {
+                appendLine(sb, rowText.toString());
+            }
+        }
+    }
+
+    private void appendRemainingImageTags(StringBuilder sb, ExtractionCursor cursor) {
+        String imageTag;
+        while ((imageTag = cursor.nextImageTag()) != null) {
+            appendLine(sb, imageTag);
+        }
+    }
+
+    private void appendLine(StringBuilder sb, String value) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n') {
+            sb.append('\n');
+        }
+        sb.append(value.trim()).append('\n');
     }
 
     private HwpImageTagResult extractImages(HWPFile hwpFile, DocumentImageContext imageContext) throws Exception {
@@ -122,6 +180,23 @@ public class HwpTextExtractionService {
     private record HwpImageTagResult(List<String> imageTags, String imgDatasJson) {
         static HwpImageTagResult empty() {
             return new HwpImageTagResult(List.of(), "[]");
+        }
+    }
+
+    private static class ExtractionCursor {
+        private final List<String> imageTags;
+        private int imageIndex;
+
+        private ExtractionCursor(List<String> imageTags) {
+            this.imageTags = imageTags == null ? List.of() : imageTags;
+            this.imageIndex = 0;
+        }
+
+        private String nextImageTag() {
+            if (imageIndex >= imageTags.size()) {
+                return null;
+            }
+            return imageTags.get(imageIndex++);
         }
     }
 }
