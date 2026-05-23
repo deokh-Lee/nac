@@ -40,7 +40,7 @@ public class TextExtractionService {
 
     private TextExtractionResult extractPdfAsSingleText(Path path, String detectedType) throws Exception {
         try (PDDocument document = PDDocument.load(path.toFile())) {
-            ColumnAwarePdfTextExtractor extractor = new ColumnAwarePdfTextExtractor(document);
+            ColumnAwarePdfTextExtractor extractor = new ColumnAwarePdfTextExtractor();
             String contents = normalizeForSingleDocument(extractor.extract(document));
             boolean hasContents = contents != null && !contents.isBlank();
             return new TextExtractionResult(contents, detectedType, hasContents);
