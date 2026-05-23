@@ -34,10 +34,13 @@
           AND NOT EXISTS (
               SELECT 1
               FROM EXTRACT_ELEC_DOC E
-              WHERE E.FILE_NAME = CN_ELEC_DOC.SAVE_FILE_NAME
-                AND E.RC_RFILE_NO = CN_ELEC_DOC.RC_RFILE_NO
+              WHERE E.RC_RFILE_NO = CN_ELEC_DOC.RC_RFILE_NO
                 AND E.RC_RITEM_NO = CN_ELEC_DOC.RC_RITEM_NO
                 AND E.EXTRACT_STATUS = 'PASS'
+                AND (
+                    E.FILE_NAME = CN_ELEC_DOC.SAVE_FILE_NAME
+                    OR E.ZIP_SEQ IS NOT NULL
+                )
           )
         ORDER BY RC_RFILE_NO, RC_RITEM_NO, SAVE_FILE_NAME
         LIMIT #{limit} OFFSET #{offset}
@@ -48,6 +51,7 @@
             FILE_NAME,
             RC_RFILE_NO,
             RC_RITEM_NO,
+            ZIP_SEQ,
             CONTENTS,
             IMG_DATAS,
             FILE_TYPE,
@@ -65,6 +69,7 @@
             #{fileName},
             #{rcRfileNo},
             #{rcRitemNo},
+            #{zipSeq},
             #{contents},
             #{imgDatas},
             #{fileType},
@@ -80,6 +85,7 @@
             NOW()
         )
         ON DUPLICATE KEY UPDATE
+            ZIP_SEQ = VALUES(ZIP_SEQ),
             CONTENTS = VALUES(CONTENTS),
             IMG_DATAS = VALUES(IMG_DATAS),
             FILE_TYPE = VALUES(FILE_TYPE),

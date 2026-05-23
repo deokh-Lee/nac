@@ -5,6 +5,7 @@ public class ExtractElecDoc {
     private String fileName;
     private String rcRfileNo;
     private String rcRitemNo;
+    private Integer zipSeq;
     private String contents;
     private String imgDatas;
     private String fileType;
@@ -39,6 +40,14 @@ public class ExtractElecDoc {
 
     public void setRcRitemNo(String rcRitemNo) {
         this.rcRitemNo = rcRitemNo;
+    }
+
+    public Integer getZipSeq() {
+        return zipSeq;
+    }
+
+    public void setZipSeq(Integer zipSeq) {
+        this.zipSeq = zipSeq;
     }
 
     public String getContents() {
