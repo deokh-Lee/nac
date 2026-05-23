@@ -5,12 +5,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.regex.Pattern;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.poi.util.RecordFormatException;
 import org.apache.tika.Tika;
+import org.apache.tika.exception.TikaException;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.metadata.TikaCoreProperties;
 import org.apache.tika.parser.AutoDetectParser;
 import org.apache.tika.sax.BodyContentHandler;
 import org.springframework.stereotype.Service;
+import org.xml.sax.SAXException;
 
 @Service
 public class TextExtractionService {
@@ -54,8 +57,14 @@ public class TextExtractionService {
                 return extractPdfAsSingleText(path, detectedType);
             }
             return extractByTika(path, detectedType);
+        } catch (DocumentExtractionException e) {
+            throw e;
         } catch (Exception e) {
-            throw new IllegalStateException("Text extraction failed. file=" + path + ", message=" + e.getMessage(), e);
+            throw new DocumentExtractionException(
+                    "EXTRACT_FAILED",
+                    "Text extraction failed. file=" + path + ", message=" + safeMessage(e),
+                    e
+            );
         }
     }
 
@@ -79,6 +88,12 @@ public class TextExtractionService {
             String contents = normalizeForSingleDocument(extractor.extract(document));
             boolean hasContents = contents != null && !contents.isBlank();
             return TextExtractionResult.withoutImages(contents, detectedType, hasContents);
+        } catch (Exception e) {
+            throw new DocumentExtractionException(
+                    "PDF_PARSE_FAILED",
+                    "PDF parse failed. file=" + path + ", message=" + safeMessage(e),
+                    e
+            );
         }
     }
 
@@ -94,15 +109,33 @@ public class TextExtractionService {
             boolean hasContents = contents != null && !contents.isBlank();
 
             return TextExtractionResult.withoutImages(contents, detectedType, hasContents);
+        } catch (RecordFormatException e) {
+            throw new DocumentExtractionException(
+                    "OFFICE_RECORD_FORMAT_FAILED",
+                    "Office metadata/body parse failed. file=" + path + ", message=" + safeMessage(e),
+                    e
+            );
+        } catch (TikaException | SAXException e) {
+            throw new DocumentExtractionException(
+                    "TIKA_PARSE_FAILED",
+                    "Tika parse failed. file=" + path + ", message=" + safeMessage(e),
+                    e
+            );
+        } catch (IllegalArgumentException e) {
+            throw new DocumentExtractionException(
+                    "INVALID_DOCUMENT_FORMAT",
+                    "Invalid document format. file=" + path + ", message=" + safeMessage(e),
+                    e
+            );
         }
     }
 
     private void validateFile(Path path) {
         if (!Files.exists(path)) {
-            throw new IllegalArgumentException("File not found: " + path);
+            throw new DocumentExtractionException("FILE_NOT_FOUND", "File not found: " + path, null);
         }
         if (!Files.isRegularFile(path)) {
-            throw new IllegalArgumentException("Path is not a file: " + path);
+            throw new DocumentExtractionException("NOT_REGULAR_FILE", "Path is not a file: " + path, null);
         }
     }
 
@@ -120,5 +153,12 @@ public class TextExtractionService {
         normalized = MULTIPLE_BLANK_LINES_PATTERN.matcher(normalized).replaceAll("\n\n");
 
         return normalized.trim();
+    }
+
+    private String safeMessage(Throwable e) {
+        if (e == null || e.getMessage() == null) {
+            return e == null ? "" : e.getClass().getSimpleName();
+        }
+        return e.getMessage();
     }
 }
