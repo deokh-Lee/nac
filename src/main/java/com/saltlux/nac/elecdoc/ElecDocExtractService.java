@@ -134,7 +134,18 @@ public class ElecDocExtractService {
         Path filePath = documentPathResolver.resolve(document);
 
         if (isZipFile(fileName)) {
+            log.info("START extract ZIP | fileName={} | rcRfileNo={} | rcRitemNo={} | path={}",
+                    fileName,
+                    document.getRcRfileNo(),
+                    document.getRcRitemNo(),
+                    filePath);
+            long startTime = System.currentTimeMillis();
             extractZipEntries(document, filePath);
+            log.info("END extract ZIP | fileName={} | rcRfileNo={} | rcRitemNo={} | elapsedMs={}",
+                    fileName,
+                    document.getRcRfileNo(),
+                    document.getRcRitemNo(),
+                    System.currentTimeMillis() - startTime);
             return;
         }
 
@@ -220,6 +231,15 @@ public class ElecDocExtractService {
                                    String targetFileName,
                                    String forcedFileType,
                                    DocumentImageContext imageContext) {
+        long startTime = System.currentTimeMillis();
+        log.info("START extract file | fileName={} | rcRfileNo={} | rcRitemNo={} | zipSeq={} | fileGubun={} | path={}",
+                targetFileName,
+                extract.getRcRfileNo(),
+                extract.getRcRitemNo(),
+                extract.getZipSeq(),
+                extract.getFileGubun(),
+                filePath);
+
         try {
             TextExtractionResult result = textExtractionService.extract(filePath, imageContext);
             extract.setContents(result.contents());
@@ -236,6 +256,15 @@ public class ElecDocExtractService {
             extract.setHasContents("N");
             extract.setExtractStatus("FAIL");
             extract.setExtractErrMsg(shortErrorMessage(e));
+        } finally {
+            log.info("END extract file | status={} | fileName={} | rcRfileNo={} | rcRitemNo={} | zipSeq={} | hasContents={} | elapsedMs={}",
+                    extract.getExtractStatus(),
+                    targetFileName,
+                    extract.getRcRfileNo(),
+                    extract.getRcRitemNo(),
+                    extract.getZipSeq(),
+                    extract.getHasContents(),
+                    System.currentTimeMillis() - startTime);
         }
     }
 
