@@ -83,7 +83,7 @@ public class ElecDocExtractService {
         }
 
         ExtractElecDoc extract = createBaseExtract(document, fileName, NORMAL_FILE_ZIP_SEQ);
-        extractSingleFile(filePath, extract, fileName, FileTypeUtils.fileTypeOf(fileName));
+        extractSingleFile(filePath, extract, fileName, FileTypeUtils.fileTypeOf(fileName), createImageContext(document, fileName));
         elecDocMapper.upsertExtractDocument(extract);
     }
 
@@ -125,7 +125,7 @@ public class ElecDocExtractService {
                 try {
                     tempFile = createTempFile(entryFileName);
                     Files.copy(zipInputStream, tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    extractSingleFile(tempFile, extract, entryFileName, "ZIP");
+                    extractSingleFile(tempFile, extract, entryFileName, "ZIP", createImageContext(document, entryFileName));
                 } catch (Exception e) {
                     extract.setContents(null);
                     extract.setIndexingContents(null);
@@ -159,11 +159,16 @@ public class ElecDocExtractService {
         }
     }
 
-    private void extractSingleFile(Path filePath, ExtractElecDoc extract, String targetFileName, String forcedFileType) {
+    private void extractSingleFile(Path filePath,
+                                   ExtractElecDoc extract,
+                                   String targetFileName,
+                                   String forcedFileType,
+                                   DocumentImageContext imageContext) {
         try {
-            TextExtractionResult result = textExtractionService.extract(filePath);
+            TextExtractionResult result = textExtractionService.extract(filePath, imageContext);
             extract.setContents(result.contents());
             extract.setIndexingContents(result.contents());
+            extract.setImgDatas(StringUtils.hasText(result.imgDatas()) ? result.imgDatas() : "[]");
             extract.setFileType(resolveFileType(targetFileName, result.fileType(), forcedFileType));
             extract.setHasContents(result.hasContents() ? "Y" : "N");
             extract.setExtractStatus("PASS");
@@ -189,6 +194,19 @@ public class ElecDocExtractService {
         extract.setDataYear(parseYear(document));
         extract.setQueueState("C");
         return extract;
+    }
+
+    private DocumentImageContext createImageContext(CnElecDoc document, String fileName) {
+        String transferYear = StringUtils.hasText(document.getTransferYear())
+                ? document.getTransferYear()
+                : properties.getDefaultTransferYear();
+
+        return new DocumentImageContext(
+                transferYear,
+                document.getRcRfileNo(),
+                document.getRcRitemNo(),
+                fileName
+        );
     }
 
     private boolean isZipFile(String fileName) {
