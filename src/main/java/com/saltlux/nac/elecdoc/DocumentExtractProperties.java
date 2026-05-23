@@ -9,6 +9,8 @@ public class DocumentExtractProperties {
     private String imageBasePath = "/data/file-data/elec_doc/images";
     private String defaultTransferYear = "2023";
     private int batchSize = 100;
+    private int threadCount = 4;
+    private int chunkSize = 25;
 
     public String getBasePath() {
         return basePath;
@@ -40,5 +42,21 @@ public class DocumentExtractProperties {
 
     public void setBatchSize(int batchSize) {
         this.batchSize = batchSize;
+    }
+
+    public int getThreadCount() {
+        return threadCount;
+    }
+
+    public void setThreadCount(int threadCount) {
+        this.threadCount = threadCount;
+    }
+
+    public int getChunkSize() {
+        return chunkSize;
+    }
+
+    public void setChunkSize(int chunkSize) {
+        this.chunkSize = chunkSize;
     }
 }
