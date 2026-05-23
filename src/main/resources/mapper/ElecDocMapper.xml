@@ -36,11 +36,18 @@
               FROM EXTRACT_ELEC_DOC E
               WHERE E.RC_RFILE_NO = CN_ELEC_DOC.RC_RFILE_NO
                 AND E.RC_RITEM_NO = CN_ELEC_DOC.RC_RITEM_NO
-                AND E.EXTRACT_STATUS = 'PASS'
                 AND (
                     E.FILE_NAME = CN_ELEC_DOC.SAVE_FILE_NAME
                     OR E.ZIP_SEQ IS NOT NULL
                 )
+                <choose>
+                    <when test="retryFail">
+                        AND E.EXTRACT_STATUS = 'PASS'
+                    </when>
+                    <otherwise>
+                        AND E.EXTRACT_STATUS IN ('PASS', 'FAIL')
+                    </otherwise>
+                </choose>
           )
         ORDER BY RC_RFILE_NO, RC_RITEM_NO, SAVE_FILE_NAME
         LIMIT #{limit} OFFSET #{offset}
