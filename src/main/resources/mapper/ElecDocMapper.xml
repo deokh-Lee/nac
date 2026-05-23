@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.saltlux.nac.elecdoc.ElecDocMapper">
+
+    <resultMap id="CnElecDocResultMap" type="CnElecDoc">
+        <result property="transferYear" column="TRANSFERYEAR"/>
+        <result property="rcRfileNo" column="RC_RFILE_NO"/>
+        <result property="rcRitemNo" column="RC_RITEM_NO"/>
+        <result property="mngNo" column="MNGNO"/>
+        <result property="detNo" column="DETNO"/>
+        <result property="detConnNo" column="DETCONNNO"/>
+        <result property="kikwanCode" column="KIKWANCODE"/>
+        <result property="prodYear" column="PRODYEAR"/>
+        <result property="opnYn" column="OPN_YN"/>
+        <result property="orgFilePath" column="ORG_FILE_PATH"/>
+        <result property="orgFileName" column="ORG_FILE_NAME"/>
+        <result property="saveFileName" column="SAVE_FILE_NAME"/>
+        <result property="delYn" column="DEL_YN"/>
+        <result property="chkYn" column="CHK_YN"/>
+        <result property="fstRegDt" column="FST_REG_DT"/>
+        <result property="fstRegId" column="FST_REG_ID"/>
+        <result property="lstUpdDt" column="LST_UPD_DT"/>
+        <result property="lstUpdId" column="LST_UPD_ID"/>
+    </resultMap>
+
+    <select id="findTargetDocuments" resultMap="CnElecDocResultMap">
+        SELECT
+            TRANSFERYEAR,
+            RC_RFILE_NO,
+            RC_RITEM_NO,
+            MNGNO,
+            DETNO,
+            DETCONNNO,
+            KIKWANCODE,
+            PRODYEAR,
+            OPN_YN,
+            ORG_FILE_PATH,
+            ORG_FILE_NAME,
+            SAVE_FILE_NAME,
+            DEL_YN,
+            CHK_YN,
+            FST_REG_DT,
+            FST_REG_ID,
+            LST_UPD_DT,
+            LST_UPD_ID
+        FROM CN_ELEC_DOC
+        WHERE TRANSFERYEAR = #{transferYear}
+          AND COALESCE(DEL_YN, 'N') != 'Y'
+          AND COALESCE(SAVE_FILE_NAME, ORG_FILE_NAME) IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM EXTRACT_ELEC_DOC E
+              WHERE E.FILE_NAME = COALESCE(CN_ELEC_DOC.SAVE_FILE_NAME, CN_ELEC_DOC.ORG_FILE_NAME)
+                AND E.RC_RFILE_NO = CN_ELEC_DOC.RC_RFILE_NO
+                AND E.RC_RITEM_NO = CN_ELEC_DOC.RC_RITEM_NO
+                AND E.EXTRACT_STATUS = 'PASS'
+          )
+        ORDER BY RC_RFILE_NO, RC_RITEM_NO, COALESCE(SAVE_FILE_NAME, ORG_FILE_NAME)
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <insert id="upsertExtractDocument" parameterType="ExtractElecDoc">
+        INSERT INTO EXTRACT_ELEC_DOC (
+            FILE_NAME,
+            RC_RFILE_NO,
+            RC_RITEM_NO,
+            CONTENTS,
+            IMG_DATAS,
+            FILE_TYPE,
+            FILE_GUBUN,
+            INDEXING_CONTENTS,
+            HWP_SUB_TITLE,
+            DATA_YEAR,
+            QUEUE_STATE,
+            HAS_CONTENTS,
+            EXTRACT_STATUS,
+            EXTRACT_ERR_MSG,
+            CREATE_DATE,
+            UPDATE_DATE
+        ) VALUES (
+            #{fileName},
+            #{rcRfileNo},
+            #{rcRitemNo},
+            #{contents},
+            #{imgDatas},
+            #{fileType},
+            #{fileGubun},
+            #{indexingContents},
+            #{hwpSubTitle},
+            #{dataYear},
+            #{queueState},
+            #{hasContents},
+            #{extractStatus},
+            #{extractErrMsg},
+            NOW(),
+            NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            CONTENTS = VALUES(CONTENTS),
+            IMG_DATAS = VALUES(IMG_DATAS),
+            FILE_TYPE = VALUES(FILE_TYPE),
+            FILE_GUBUN = VALUES(FILE_GUBUN),
+            INDEXING_CONTENTS = VALUES(INDEXING_CONTENTS),
+            HWP_SUB_TITLE = VALUES(HWP_SUB_TITLE),
+            DATA_YEAR = VALUES(DATA_YEAR),
+            QUEUE_STATE = VALUES(QUEUE_STATE),
+            HAS_CONTENTS = VALUES(HAS_CONTENTS),
+            EXTRACT_STATUS = VALUES(EXTRACT_STATUS),
+            EXTRACT_ERR_MSG = VALUES(EXTRACT_ERR_MSG),
+            UPDATE_DATE = NOW()
+    </insert>
+
+</mapper>
