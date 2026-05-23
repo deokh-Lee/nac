@@ -9,7 +9,8 @@ public interface ElecDocMapper {
 
     List<CnElecDoc> findTargetDocuments(@Param("transferYear") String transferYear,
                                          @Param("limit") int limit,
-                                         @Param("offset") int offset);
+                                         @Param("offset") int offset,
+                                         @Param("retryFail") boolean retryFail);
 
     int upsertExtractDocument(ExtractElecDoc extractElecDoc);
 }
