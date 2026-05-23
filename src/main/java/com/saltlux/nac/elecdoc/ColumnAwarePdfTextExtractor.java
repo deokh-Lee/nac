@@ -19,14 +19,16 @@ public class ColumnAwarePdfTextExtractor extends PDFTextStripper {
     private final List<LineText> pageLines = new ArrayList<>();
     private float pageWidth;
 
-    public ColumnAwarePdfTextExtractor(PDDocument document) throws IOException {
-        setStartPage(1);
-        setEndPage(document.getNumberOfPages());
+    public ColumnAwarePdfTextExtractor() throws IOException {
+        super();
         setSortByPosition(true);
         setPageSeparator("\n");
     }
 
     public String extract(PDDocument document) throws IOException {
+        documentText.setLength(0);
+        setStartPage(1);
+        setEndPage(document.getNumberOfPages());
         super.getText(document);
         return documentText.toString();
     }
@@ -183,11 +185,13 @@ public class ColumnAwarePdfTextExtractor extends PDFTextStripper {
         right.sort(Comparator.comparing(LineText::minY).thenComparing(LineText::minX));
         fullWidth.sort(Comparator.comparing(LineText::minY).thenComparing(LineText::minX));
 
+        float bodyStartY = firstBodyY(left, right);
+
         List<LineText> ordered = new ArrayList<>();
-        ordered.addAll(fullWidth.stream().filter(line -> line.minY() < firstBodyY(left, right)).toList());
+        ordered.addAll(fullWidth.stream().filter(line -> line.minY() < bodyStartY).toList());
         ordered.addAll(left);
         ordered.addAll(right);
-        ordered.addAll(fullWidth.stream().filter(line -> line.minY() >= firstBodyY(left, right)).toList());
+        ordered.addAll(fullWidth.stream().filter(line -> line.minY() >= bodyStartY).toList());
         return ordered;
     }
 
