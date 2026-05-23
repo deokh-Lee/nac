@@ -1,6 +1,6 @@
 package com.saltlux.nac.record;
 
-import jakarta.persistence.EntityNotFoundException;
+import com.saltlux.nac.common.NotFoundException;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -9,14 +9,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class RecordService {
 
-    private final RecordRepository recordRepository;
+    private final RecordMapper recordMapper;
 
-    public RecordService(RecordRepository recordRepository) {
-        this.recordRepository = recordRepository;
+    public RecordService(RecordMapper recordMapper) {
+        this.recordMapper = recordMapper;
     }
 
     public List<RecordResponse> findAll() {
-        return recordRepository.findAll()
+        return recordMapper.findAll()
                 .stream()
                 .map(RecordResponse::from)
                 .toList();
@@ -29,24 +29,29 @@ public class RecordService {
     @Transactional
     public RecordResponse create(RecordRequest request) {
         Record record = new Record(request.title(), request.description());
-        return RecordResponse.from(recordRepository.save(record));
+        recordMapper.insert(record);
+        return findById(record.getId());
     }
 
     @Transactional
     public RecordResponse update(Long id, RecordRequest request) {
-        Record record = getRecord(id);
-        record.update(request.title(), request.description());
-        return RecordResponse.from(record);
+        getRecord(id);
+
+        Record record = new Record(request.title(), request.description());
+        record.setId(id);
+        recordMapper.update(record);
+
+        return findById(id);
     }
 
     @Transactional
     public void delete(Long id) {
-        Record record = getRecord(id);
-        recordRepository.delete(record);
+        getRecord(id);
+        recordMapper.deleteById(id);
     }
 
     private Record getRecord(Long id) {
-        return recordRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Record not found. id=" + id));
+        return recordMapper.findById(id)
+                .orElseThrow(() -> new NotFoundException("Record not found. id=" + id));
     }
 }
