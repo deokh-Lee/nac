@@ -4,7 +4,6 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.tika.Tika;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.parser.AutoDetectParser;
@@ -36,17 +35,8 @@ public class TextExtractionService {
 
     private TextExtractionResult extractPdfAsSingleText(Path path, String detectedType) throws Exception {
         try (PDDocument document = PDDocument.load(path.toFile())) {
-            PDFTextStripper stripper = new PDFTextStripper();
-
-            // PDFBox 내부적으로는 페이지 순회가 필요하지만, 결과는 페이지별로 나누지 않고 하나의 문자열로 합칩니다.
-            stripper.setStartPage(1);
-            stripper.setEndPage(document.getNumberOfPages());
-            stripper.setSortByPosition(true);
-
-            // 페이지 경계에서 form feed 같은 구분자가 들어가면 전체 문맥이 끊길 수 있으므로 제거합니다.
-            stripper.setPageSeparator("\n");
-
-            String contents = normalizeForSingleDocument(stripper.getText(document));
+            ColumnAwarePdfTextExtractor extractor = new ColumnAwarePdfTextExtractor(document);
+            String contents = normalizeForSingleDocument(extractor.extract(document));
             boolean hasContents = contents != null && !contents.isBlank();
             return new TextExtractionResult(contents, detectedType, hasContents);
         }
