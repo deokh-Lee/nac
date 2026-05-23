@@ -20,8 +20,19 @@ public class ElecDocExtractController {
     public ResponseEntity<ExtractBatchResult> extractBatch(
             @RequestParam(required = false) String transferYear,
             @RequestParam(required = false) Integer limit,
-            @RequestParam(required = false) Integer offset
+            @RequestParam(required = false) Integer offset,
+            @RequestParam(required = false, defaultValue = "false") boolean retryFail
     ) {
-        return ResponseEntity.ok(elecDocExtractService.extractBatch(transferYear, limit, offset));
+        return ResponseEntity.ok(elecDocExtractService.extractBatch(transferYear, limit, offset, retryFail));
+    }
+
+    @PostMapping("/all")
+    public ResponseEntity<ExtractAllBatchResult> extractAll(
+            @RequestParam(required = false) String transferYear,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer maxLoop,
+            @RequestParam(required = false, defaultValue = "false") Boolean retryFail
+    ) {
+        return ResponseEntity.ok(elecDocExtractService.extractAll(transferYear, limit, maxLoop, retryFail));
     }
 }
