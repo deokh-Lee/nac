@@ -59,12 +59,12 @@ public class ElecDocExtractService {
                 successCount++;
             } catch (Exception e) {
                 failCount++;
-                log.error("Document extraction failed. transferYear={}, rcRfileNo={}, rcRitemNo={}, fileName={}",
+                log.warn("Document extraction skipped. transferYear={}, rcRfileNo={}, rcRitemNo={}, fileName={}, error={}",
                         document.getTransferYear(),
                         document.getRcRfileNo(),
                         document.getRcRitemNo(),
                         documentPathResolver.resolveFileName(document),
-                        e);
+                        shortErrorMessage(e));
             }
         }
 
@@ -150,7 +150,7 @@ public class ElecDocExtractService {
             failExtract.setFileGubun("ZIP");
             failExtract.setHasContents("N");
             failExtract.setExtractStatus("FAIL");
-            failExtract.setExtractErrMsg("ZIP file not found: " + zipFilePath);
+            failExtract.setExtractErrMsg("FILE_NOT_FOUND | ZIP file not found: " + zipFilePath);
             elecDocMapper.upsertExtractDocument(failExtract);
             return;
         }
@@ -187,7 +187,7 @@ public class ElecDocExtractService {
                     extract.setIndexingContents(null);
                     extract.setHasContents("N");
                     extract.setExtractStatus("FAIL");
-                    extract.setExtractErrMsg(toStackTrace(e));
+                    extract.setExtractErrMsg(shortErrorMessage(e));
                 } finally {
                     deleteQuietly(tempFile);
                     elecDocMapper.upsertExtractDocument(extract);
@@ -201,7 +201,7 @@ public class ElecDocExtractService {
                 emptyExtract.setFileGubun("ZIP");
                 emptyExtract.setHasContents("N");
                 emptyExtract.setExtractStatus("FAIL");
-                emptyExtract.setExtractErrMsg("ZIP has no file entries: " + zipFilePath);
+                emptyExtract.setExtractErrMsg("EMPTY_ZIP | ZIP has no file entries: " + zipFilePath);
                 elecDocMapper.upsertExtractDocument(emptyExtract);
             }
         } catch (Exception e) {
@@ -210,7 +210,7 @@ public class ElecDocExtractService {
             failExtract.setFileGubun("ZIP");
             failExtract.setHasContents("N");
             failExtract.setExtractStatus("FAIL");
-            failExtract.setExtractErrMsg(toStackTrace(e));
+            failExtract.setExtractErrMsg(shortErrorMessage(e));
             elecDocMapper.upsertExtractDocument(failExtract);
         }
     }
@@ -235,7 +235,7 @@ public class ElecDocExtractService {
             extract.setFileType(resolveFileType(targetFileName, null, forcedFileType));
             extract.setHasContents("N");
             extract.setExtractStatus("FAIL");
-            extract.setExtractErrMsg(toStackTrace(e));
+            extract.setExtractErrMsg(shortErrorMessage(e));
         }
     }
 
@@ -294,7 +294,7 @@ public class ElecDocExtractService {
         try {
             Files.deleteIfExists(path);
         } catch (IOException e) {
-            log.warn("Failed to delete temp file: {}", path, e);
+            log.warn("Failed to delete temp file: {}", path);
         }
     }
 
@@ -325,6 +325,37 @@ public class ElecDocExtractService {
         return detectedType;
     }
 
+    private String shortErrorMessage(Exception e) {
+        if (e instanceof DocumentExtractionException extractionException) {
+            return extractionException.getErrorCode() + " | " + safeMessage(extractionException);
+        }
+
+        Throwable cause = rootCause(e);
+        String type = cause == null ? e.getClass().getSimpleName() : cause.getClass().getSimpleName();
+        String message = cause == null ? safeMessage(e) : safeMessage(cause);
+        return type + " | " + message;
+    }
+
+    private Throwable rootCause(Throwable e) {
+        Throwable current = e;
+        while (current != null && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private String safeMessage(Throwable e) {
+        if (e == null) {
+            return "";
+        }
+        String message = e.getMessage();
+        if (!StringUtils.hasText(message)) {
+            return e.getClass().getSimpleName();
+        }
+        return message.length() > 2000 ? message.substring(0, 2000) : message;
+    }
+
+    @SuppressWarnings("unused")
     private String toStackTrace(Exception e) {
         StringWriter stringWriter = new StringWriter();
         e.printStackTrace(new PrintWriter(stringWriter));
