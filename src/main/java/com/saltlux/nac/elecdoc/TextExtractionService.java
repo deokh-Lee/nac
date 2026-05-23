@@ -7,6 +7,7 @@ import java.util.regex.Pattern;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.tika.Tika;
 import org.apache.tika.metadata.Metadata;
+import org.apache.tika.metadata.TikaCoreProperties;
 import org.apache.tika.parser.AutoDetectParser;
 import org.apache.tika.sax.BodyContentHandler;
 import org.springframework.stereotype.Service;
@@ -50,7 +51,7 @@ public class TextExtractionService {
     private TextExtractionResult extractByTika(Path path, String detectedType) throws Exception {
         try (InputStream inputStream = Files.newInputStream(path)) {
             Metadata metadata = new Metadata();
-            metadata.set(Metadata.RESOURCE_NAME_KEY, path.getFileName().toString());
+            metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, path.getFileName().toString());
 
             BodyContentHandler handler = new BodyContentHandler(WRITE_LIMIT);
             parser.parse(inputStream, handler, metadata);
