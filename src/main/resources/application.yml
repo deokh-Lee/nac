@@ -10,6 +10,9 @@ spring:
     url: jdbc:mariadb://192.168.250.25:33306/ARCHIVES_PUB_DB?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Seoul
     username: root
     password: root
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 4
 
 mybatis:
   mapper-locations: classpath:/mapper/**/*.xml
@@ -23,6 +26,8 @@ document:
     image-base-path: /data/file-data/elec_doc/images
     default-transfer-year: 2023
     batch-size: 100
+    thread-count: 4
+    chunk-size: 25
 
 logging:
   level:
