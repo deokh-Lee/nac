@@ -20,9 +20,14 @@ mybatis:
 document:
   extract:
     base-path: /data/file-data/elec_doc
+    image-base-path: /data/file-data/elec_doc/images
     default-transfer-year: 2023
     batch-size: 100
 
 logging:
   level:
-    com.saltlux.nac: debug
+    root: info
+    com.saltlux.nac: info
+    com.saltlux.nac.elecdoc.ElecDocMapper: warn
+    org.mybatis: warn
+    org.apache.ibatis: warn
