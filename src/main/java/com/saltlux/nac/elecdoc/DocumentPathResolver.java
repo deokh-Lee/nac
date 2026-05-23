@@ -14,11 +14,15 @@ public class DocumentPathResolver {
     }
 
     public Path resolve(CnElecDoc document) {
+        String fileName = resolveFileName(document);
+
+        if (StringUtils.hasText(document.getOrgFilePath())) {
+            return resolveByOrgFilePath(document.getOrgFilePath(), fileName);
+        }
+
         String transferYear = StringUtils.hasText(document.getTransferYear())
                 ? document.getTransferYear()
                 : properties.getDefaultTransferYear();
-
-        String fileName = resolveFileName(document);
 
         return Path.of(
                 properties.getBasePath(),
@@ -30,9 +34,20 @@ public class DocumentPathResolver {
     }
 
     public String resolveFileName(CnElecDoc document) {
-        if (StringUtils.hasText(document.getSaveFileName())) {
-            return document.getSaveFileName();
+        return document.getSaveFileName();
+    }
+
+    private Path resolveByOrgFilePath(String orgFilePath, String fileName) {
+        String normalizedPath = orgFilePath.replace("\\", "/");
+
+        if (normalizedPath.endsWith("/")) {
+            return Path.of(normalizedPath, fileName);
         }
-        return document.getOrgFileName();
+
+        if (StringUtils.hasText(fileName) && normalizedPath.endsWith(fileName)) {
+            return Path.of(normalizedPath);
+        }
+
+        return Path.of(normalizedPath, fileName);
     }
 }
