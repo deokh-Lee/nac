@@ -11,6 +11,7 @@ public class DocumentExtractProperties {
     private int batchSize = 100;
     private int threadCount = 4;
     private int chunkSize = 25;
+    private int fileTimeoutSeconds = 300;
 
     public String getBasePath() {
         return basePath;
@@ -58,5 +59,13 @@ public class DocumentExtractProperties {
 
     public void setChunkSize(int chunkSize) {
         this.chunkSize = chunkSize;
+    }
+
+    public int getFileTimeoutSeconds() {
+        return fileTimeoutSeconds;
+    }
+
+    public void setFileTimeoutSeconds(int fileTimeoutSeconds) {
+        this.fileTimeoutSeconds = fileTimeoutSeconds;
     }
 }
