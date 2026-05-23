@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class DocumentExtractProperties {
 
     private String basePath = "/data/file-data/elec_doc";
+    private String imageBasePath = "/data/file-data/elec_doc/images";
     private String defaultTransferYear = "2023";
     private int batchSize = 100;
 
@@ -15,6 +16,14 @@ public class DocumentExtractProperties {
 
     public void setBasePath(String basePath) {
         this.basePath = basePath;
+    }
+
+    public String getImageBasePath() {
+        return imageBasePath;
+    }
+
+    public void setImageBasePath(String imageBasePath) {
+        this.imageBasePath = imageBasePath;
     }
 
     public String getDefaultTransferYear() {
