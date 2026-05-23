@@ -4,13 +4,11 @@ services:
     container_name: nac-mariadb
     restart: unless-stopped
     environment:
-      MARIADB_DATABASE: nac_db
-      MARIADB_USER: nac_user
-      MARIADB_PASSWORD: nac_password
-      MARIADB_ROOT_PASSWORD: root_password
+      MARIADB_DATABASE: ARCHIVES_PUB_DB
+      MARIADB_ROOT_PASSWORD: root
       TZ: Asia/Seoul
     ports:
-      - "3306:3306"
+      - "33306:3306"
     volumes:
       - mariadb-data:/var/lib/mysql
     command:
