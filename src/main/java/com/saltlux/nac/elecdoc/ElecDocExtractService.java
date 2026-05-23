@@ -14,6 +14,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.slf4j.Logger;
@@ -315,16 +317,17 @@ public class ElecDocExtractService {
                                    String forcedFileType,
                                    DocumentImageContext imageContext) {
         long startTime = System.currentTimeMillis();
-        log.info("START extract file | fileName={} | rcRfileNo={} | rcRitemNo={} | zipSeq={} | fileGubun={} | path={}",
+        log.info("START extract file | fileName={} | rcRfileNo={} | rcRitemNo={} | zipSeq={} | fileGubun={} | timeoutSec={} | path={}",
                 targetFileName,
                 extract.getRcRfileNo(),
                 extract.getRcRitemNo(),
                 extract.getZipSeq(),
                 extract.getFileGubun(),
+                properties.getFileTimeoutSeconds(),
                 filePath);
 
         try {
-            TextExtractionResult result = textExtractionService.extract(filePath, imageContext);
+            TextExtractionResult result = extractWithTimeout(filePath, imageContext);
             extract.setContents(result.contents());
             extract.setIndexingContents(result.contents());
             extract.setImgDatas(StringUtils.hasText(result.imgDatas()) ? result.imgDatas() : "[]");
@@ -348,6 +351,30 @@ public class ElecDocExtractService {
                     extract.getZipSeq(),
                     extract.getHasContents(),
                     System.currentTimeMillis() - startTime);
+        }
+    }
+
+    private TextExtractionResult extractWithTimeout(Path filePath, DocumentImageContext imageContext) throws Exception {
+        int timeoutSeconds = Math.max(1, properties.getFileTimeoutSeconds());
+        ExecutorService singleExecutor = Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("extract-timeout-worker");
+            thread.setDaemon(true);
+            return thread;
+        });
+
+        Future<TextExtractionResult> future = singleExecutor.submit(() -> textExtractionService.extract(filePath, imageContext));
+        try {
+            return future.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            throw new DocumentExtractionException(
+                    "EXTRACT_TIMEOUT",
+                    "File extraction exceeded timeout. timeoutSeconds=" + timeoutSeconds + ", file=" + filePath,
+                    e
+            );
+        } finally {
+            singleExecutor.shutdownNow();
         }
     }
 
