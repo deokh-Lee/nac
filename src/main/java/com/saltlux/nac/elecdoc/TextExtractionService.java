@@ -25,9 +25,12 @@ public class TextExtractionService {
     private final Tika tika = new Tika();
     private final AutoDetectParser parser = new AutoDetectParser();
     private final HwpTextExtractionService hwpTextExtractionService;
+    private final HwpxTextExtractionService hwpxTextExtractionService;
 
-    public TextExtractionService(HwpTextExtractionService hwpTextExtractionService) {
+    public TextExtractionService(HwpTextExtractionService hwpTextExtractionService,
+                                 HwpxTextExtractionService hwpxTextExtractionService) {
         this.hwpTextExtractionService = hwpTextExtractionService;
+        this.hwpxTextExtractionService = hwpxTextExtractionService;
     }
 
     public TextExtractionResult extract(Path path) {
@@ -39,6 +42,9 @@ public class TextExtractionService {
 
             if ("hwp".equals(extension)) {
                 return extractHwpAsSingleText(path);
+            }
+            if ("hwpx".equals(extension)) {
+                return extractHwpxAsSingleText(path);
             }
             if (PDF_MEDIA_TYPE.equalsIgnoreCase(detectedType) || "pdf".equals(extension)) {
                 return extractPdfAsSingleText(path, detectedType);
@@ -53,6 +59,12 @@ public class TextExtractionService {
         String contents = normalizeForSingleDocument(hwpTextExtractionService.extract(path));
         boolean hasContents = contents != null && !contents.isBlank();
         return new TextExtractionResult(contents, "application/x-hwp", hasContents);
+    }
+
+    private TextExtractionResult extractHwpxAsSingleText(Path path) throws Exception {
+        String contents = normalizeForSingleDocument(hwpxTextExtractionService.extract(path));
+        boolean hasContents = contents != null && !contents.isBlank();
+        return new TextExtractionResult(contents, "application/x-hwpx", hasContents);
     }
 
     private TextExtractionResult extractPdfAsSingleText(Path path, String detectedType) throws Exception {
