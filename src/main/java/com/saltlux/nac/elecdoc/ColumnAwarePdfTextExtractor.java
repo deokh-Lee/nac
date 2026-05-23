@@ -22,7 +22,6 @@ public class ColumnAwarePdfTextExtractor extends PDFTextStripper {
     public ColumnAwarePdfTextExtractor() throws IOException {
         super();
         setSortByPosition(true);
-        setPageSeparator("\n");
     }
 
     public String extract(PDDocument document) throws IOException {
