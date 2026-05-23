@@ -20,6 +20,7 @@ import org.springframework.util.StringUtils;
 public class ElecDocExtractService {
 
     private static final Logger log = LoggerFactory.getLogger(ElecDocExtractService.class);
+    private static final int NORMAL_FILE_ZIP_SEQ = 0;
 
     private final ElecDocMapper elecDocMapper;
     private final DocumentPathResolver documentPathResolver;
@@ -81,14 +82,14 @@ public class ElecDocExtractService {
             return;
         }
 
-        ExtractElecDoc extract = createBaseExtract(document, fileName, null);
+        ExtractElecDoc extract = createBaseExtract(document, fileName, NORMAL_FILE_ZIP_SEQ);
         extractSingleFile(filePath, extract, fileName, FileTypeUtils.fileTypeOf(fileName));
         elecDocMapper.upsertExtractDocument(extract);
     }
 
     private void extractZipEntries(CnElecDoc document, Path zipFilePath) {
         if (!Files.exists(zipFilePath)) {
-            ExtractElecDoc failExtract = createBaseExtract(document, documentPathResolver.resolveFileName(document), 0);
+            ExtractElecDoc failExtract = createBaseExtract(document, documentPathResolver.resolveFileName(document), NORMAL_FILE_ZIP_SEQ);
             failExtract.setFileType("ZIP");
             failExtract.setFileGubun("ZIP");
             failExtract.setHasContents("N");
@@ -139,7 +140,7 @@ public class ElecDocExtractService {
             }
 
             if (seq == 0) {
-                ExtractElecDoc emptyExtract = createBaseExtract(document, documentPathResolver.resolveFileName(document), 0);
+                ExtractElecDoc emptyExtract = createBaseExtract(document, documentPathResolver.resolveFileName(document), NORMAL_FILE_ZIP_SEQ);
                 emptyExtract.setFileType("ZIP");
                 emptyExtract.setFileGubun("ZIP");
                 emptyExtract.setHasContents("N");
@@ -148,7 +149,7 @@ public class ElecDocExtractService {
                 elecDocMapper.upsertExtractDocument(emptyExtract);
             }
         } catch (Exception e) {
-            ExtractElecDoc failExtract = createBaseExtract(document, documentPathResolver.resolveFileName(document), 0);
+            ExtractElecDoc failExtract = createBaseExtract(document, documentPathResolver.resolveFileName(document), NORMAL_FILE_ZIP_SEQ);
             failExtract.setFileType("ZIP");
             failExtract.setFileGubun("ZIP");
             failExtract.setHasContents("N");
@@ -182,7 +183,7 @@ public class ElecDocExtractService {
         extract.setFileName(fileName);
         extract.setRcRfileNo(document.getRcRfileNo());
         extract.setRcRitemNo(document.getRcRitemNo());
-        extract.setZipSeq(zipSeq);
+        extract.setZipSeq(zipSeq == null ? NORMAL_FILE_ZIP_SEQ : zipSeq);
         extract.setImgDatas("[]");
         extract.setFileGubun(FileTypeUtils.fileGubunOf(fileName));
         extract.setDataYear(parseYear(document));
