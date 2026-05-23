@@ -34,6 +34,10 @@ public class TextExtractionService {
     }
 
     public TextExtractionResult extract(Path path) {
+        return extract(path, null);
+    }
+
+    public TextExtractionResult extract(Path path, DocumentImageContext imageContext) {
         validateFile(path);
 
         try {
@@ -41,10 +45,10 @@ public class TextExtractionService {
             String detectedType = tika.detect(path);
 
             if ("hwp".equals(extension)) {
-                return extractHwpAsSingleText(path);
+                return extractHwpAsSingleText(path, imageContext);
             }
             if ("hwpx".equals(extension)) {
-                return extractHwpxAsSingleText(path);
+                return extractHwpxAsSingleText(path, imageContext);
             }
             if (PDF_MEDIA_TYPE.equalsIgnoreCase(detectedType) || "pdf".equals(extension)) {
                 return extractPdfAsSingleText(path, detectedType);
@@ -55,16 +59,18 @@ public class TextExtractionService {
         }
     }
 
-    private TextExtractionResult extractHwpAsSingleText(Path path) throws Exception {
-        String contents = normalizeForSingleDocument(hwpTextExtractionService.extract(path));
+    private TextExtractionResult extractHwpAsSingleText(Path path, DocumentImageContext imageContext) throws Exception {
+        TextExtractionResult result = hwpTextExtractionService.extract(path, imageContext);
+        String contents = normalizeForSingleDocument(result.contents());
         boolean hasContents = contents != null && !contents.isBlank();
-        return new TextExtractionResult(contents, "application/x-hwp", hasContents);
+        return new TextExtractionResult(contents, result.fileType(), hasContents, result.imgDatas());
     }
 
-    private TextExtractionResult extractHwpxAsSingleText(Path path) throws Exception {
-        String contents = normalizeForSingleDocument(hwpxTextExtractionService.extract(path));
+    private TextExtractionResult extractHwpxAsSingleText(Path path, DocumentImageContext imageContext) throws Exception {
+        TextExtractionResult result = hwpxTextExtractionService.extract(path, imageContext);
+        String contents = normalizeForSingleDocument(result.contents());
         boolean hasContents = contents != null && !contents.isBlank();
-        return new TextExtractionResult(contents, "application/x-hwpx", hasContents);
+        return new TextExtractionResult(contents, result.fileType(), hasContents, result.imgDatas());
     }
 
     private TextExtractionResult extractPdfAsSingleText(Path path, String detectedType) throws Exception {
@@ -72,7 +78,7 @@ public class TextExtractionService {
             ColumnAwarePdfTextExtractor extractor = new ColumnAwarePdfTextExtractor();
             String contents = normalizeForSingleDocument(extractor.extract(document));
             boolean hasContents = contents != null && !contents.isBlank();
-            return new TextExtractionResult(contents, detectedType, hasContents);
+            return TextExtractionResult.withoutImages(contents, detectedType, hasContents);
         }
     }
 
@@ -87,7 +93,7 @@ public class TextExtractionService {
             String contents = normalizeForSingleDocument(handler.toString());
             boolean hasContents = contents != null && !contents.isBlank();
 
-            return new TextExtractionResult(contents, detectedType, hasContents);
+            return TextExtractionResult.withoutImages(contents, detectedType, hasContents);
         }
     }
 
