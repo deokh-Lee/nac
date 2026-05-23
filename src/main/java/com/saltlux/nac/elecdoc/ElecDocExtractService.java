@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -21,6 +22,7 @@ public class ElecDocExtractService {
 
     private static final Logger log = LoggerFactory.getLogger(ElecDocExtractService.class);
     private static final int NORMAL_FILE_ZIP_SEQ = 0;
+    private static final Charset ZIP_ENTRY_CHARSET = Charset.forName("MS949");
 
     private final ElecDocMapper elecDocMapper;
     private final DocumentPathResolver documentPathResolver;
@@ -101,7 +103,7 @@ public class ElecDocExtractService {
 
         int seq = 0;
         try (InputStream inputStream = Files.newInputStream(zipFilePath);
-             ZipInputStream zipInputStream = new ZipInputStream(inputStream)) {
+             ZipInputStream zipInputStream = new ZipInputStream(inputStream, ZIP_ENTRY_CHARSET)) {
 
             ZipEntry entry;
             while ((entry = zipInputStream.getNextEntry()) != null) {
