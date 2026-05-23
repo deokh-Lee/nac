@@ -1,9 +1,15 @@
 package com.saltlux.nac.elecdoc;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -70,33 +76,151 @@ public class ElecDocExtractService {
         String fileName = documentPathResolver.resolveFileName(document);
         Path filePath = documentPathResolver.resolve(document);
 
-        ExtractElecDoc extract = new ExtractElecDoc();
-        extract.setFileName(fileName);
-        extract.setRcRfileNo(document.getRcRfileNo());
-        extract.setRcRitemNo(document.getRcRitemNo());
-        extract.setImgDatas("[]");
-        extract.setFileGubun(FileTypeUtils.fileGubunOf(fileName));
-        extract.setDataYear(parseYear(document));
-        extract.setQueueState("C");
+        if (isZipFile(fileName)) {
+            extractZipEntries(document, filePath);
+            return;
+        }
 
+        ExtractElecDoc extract = createBaseExtract(document, fileName, null);
+        extractSingleFile(filePath, extract, fileName, FileTypeUtils.fileTypeOf(fileName));
+        elecDocMapper.upsertExtractDocument(extract);
+    }
+
+    private void extractZipEntries(CnElecDoc document, Path zipFilePath) {
+        if (!Files.exists(zipFilePath)) {
+            ExtractElecDoc failExtract = createBaseExtract(document, documentPathResolver.resolveFileName(document), 0);
+            failExtract.setFileType("ZIP");
+            failExtract.setFileGubun("ZIP");
+            failExtract.setHasContents("N");
+            failExtract.setExtractStatus("FAIL");
+            failExtract.setExtractErrMsg("ZIP file not found: " + zipFilePath);
+            elecDocMapper.upsertExtractDocument(failExtract);
+            return;
+        }
+
+        int seq = 0;
+        try (InputStream inputStream = Files.newInputStream(zipFilePath);
+             ZipInputStream zipInputStream = new ZipInputStream(inputStream)) {
+
+            ZipEntry entry;
+            while ((entry = zipInputStream.getNextEntry()) != null) {
+                if (entry.isDirectory()) {
+                    zipInputStream.closeEntry();
+                    continue;
+                }
+
+                String entryFileName = extractEntryFileName(entry.getName());
+                if (!StringUtils.hasText(entryFileName)) {
+                    zipInputStream.closeEntry();
+                    continue;
+                }
+
+                seq++;
+                ExtractElecDoc extract = createBaseExtract(document, entryFileName, seq);
+                extract.setFileType("ZIP");
+                extract.setFileGubun(FileTypeUtils.fileGubunOf(entryFileName));
+
+                Path tempFile = null;
+                try {
+                    tempFile = createTempFile(entryFileName);
+                    Files.copy(zipInputStream, tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    extractSingleFile(tempFile, extract, entryFileName, "ZIP");
+                } catch (Exception e) {
+                    extract.setContents(null);
+                    extract.setIndexingContents(null);
+                    extract.setHasContents("N");
+                    extract.setExtractStatus("FAIL");
+                    extract.setExtractErrMsg(toStackTrace(e));
+                } finally {
+                    deleteQuietly(tempFile);
+                    elecDocMapper.upsertExtractDocument(extract);
+                    zipInputStream.closeEntry();
+                }
+            }
+
+            if (seq == 0) {
+                ExtractElecDoc emptyExtract = createBaseExtract(document, documentPathResolver.resolveFileName(document), 0);
+                emptyExtract.setFileType("ZIP");
+                emptyExtract.setFileGubun("ZIP");
+                emptyExtract.setHasContents("N");
+                emptyExtract.setExtractStatus("FAIL");
+                emptyExtract.setExtractErrMsg("ZIP has no file entries: " + zipFilePath);
+                elecDocMapper.upsertExtractDocument(emptyExtract);
+            }
+        } catch (Exception e) {
+            ExtractElecDoc failExtract = createBaseExtract(document, documentPathResolver.resolveFileName(document), 0);
+            failExtract.setFileType("ZIP");
+            failExtract.setFileGubun("ZIP");
+            failExtract.setHasContents("N");
+            failExtract.setExtractStatus("FAIL");
+            failExtract.setExtractErrMsg(toStackTrace(e));
+            elecDocMapper.upsertExtractDocument(failExtract);
+        }
+    }
+
+    private void extractSingleFile(Path filePath, ExtractElecDoc extract, String targetFileName, String forcedFileType) {
         try {
             TextExtractionResult result = textExtractionService.extract(filePath);
             extract.setContents(result.contents());
             extract.setIndexingContents(result.contents());
-            extract.setFileType(resolveFileType(fileName, result.fileType()));
+            extract.setFileType(resolveFileType(targetFileName, result.fileType(), forcedFileType));
             extract.setHasContents(result.hasContents() ? "Y" : "N");
             extract.setExtractStatus("PASS");
             extract.setExtractErrMsg(null);
         } catch (Exception e) {
             extract.setContents(null);
             extract.setIndexingContents(null);
-            extract.setFileType(FileTypeUtils.fileTypeOf(fileName));
+            extract.setFileType(resolveFileType(targetFileName, null, forcedFileType));
             extract.setHasContents("N");
             extract.setExtractStatus("FAIL");
             extract.setExtractErrMsg(toStackTrace(e));
         }
+    }
 
-        elecDocMapper.upsertExtractDocument(extract);
+    private ExtractElecDoc createBaseExtract(CnElecDoc document, String fileName, Integer zipSeq) {
+        ExtractElecDoc extract = new ExtractElecDoc();
+        extract.setFileName(fileName);
+        extract.setRcRfileNo(document.getRcRfileNo());
+        extract.setRcRitemNo(document.getRcRitemNo());
+        extract.setZipSeq(zipSeq);
+        extract.setImgDatas("[]");
+        extract.setFileGubun(FileTypeUtils.fileGubunOf(fileName));
+        extract.setDataYear(parseYear(document));
+        extract.setQueueState("C");
+        return extract;
+    }
+
+    private boolean isZipFile(String fileName) {
+        return "zip".equals(FileTypeUtils.extensionOf(fileName).toLowerCase(Locale.ROOT));
+    }
+
+    private String extractEntryFileName(String entryName) {
+        if (!StringUtils.hasText(entryName)) {
+            return null;
+        }
+        String normalized = entryName.replace("\\", "/");
+        int lastSlash = normalized.lastIndexOf('/');
+        if (lastSlash >= 0) {
+            return normalized.substring(lastSlash + 1);
+        }
+        return normalized;
+    }
+
+    private Path createTempFile(String fileName) throws IOException {
+        String extension = FileTypeUtils.extensionOf(fileName);
+        String suffix = StringUtils.hasText(extension) ? "." + extension : ".tmp";
+        return Files.createTempFile("nac-zip-entry-", suffix);
+    }
+
+    private void deleteQuietly(Path path) {
+        if (path == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException e) {
+            log.warn("Failed to delete temp file: {}", path, e);
+        }
     }
 
     private Integer parseYear(CnElecDoc document) {
@@ -115,7 +239,10 @@ public class ElecDocExtractService {
         }
     }
 
-    private String resolveFileType(String fileName, String detectedType) {
+    private String resolveFileType(String fileName, String detectedType, String forcedFileType) {
+        if (StringUtils.hasText(forcedFileType)) {
+            return forcedFileType;
+        }
         String extensionType = FileTypeUtils.fileTypeOf(fileName);
         if (!"UNKNOWN".equals(extensionType)) {
             return extensionType;
