@@ -1,13 +1,16 @@
 package com.saltlux.nac.elecdoc;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import kr.dogfoot.hwplib.object.HWPFile;
 import kr.dogfoot.hwplib.object.bindata.EmbeddedBinaryData;
+import kr.dogfoot.hwplib.object.bodytext.Section;
+import kr.dogfoot.hwplib.object.bodytext.control.Control;
+import kr.dogfoot.hwplib.object.bodytext.control.gso.ControlPicture;
+import kr.dogfoot.hwplib.object.bodytext.paragraph.Paragraph;
 import kr.dogfoot.hwplib.reader.HWPReader;
-import kr.dogfoot.hwplib.tool.textextractor.TextExtractMethod;
-import kr.dogfoot.hwplib.tool.textextractor.TextExtractOption;
-import kr.dogfoot.hwplib.tool.textextractor.TextExtractor;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -22,25 +25,78 @@ public class HwpTextExtractionService {
     public TextExtractionResult extract(Path path, DocumentImageContext imageContext) throws Exception {
         HWPFile hwpFile = HWPReader.fromFile(path.toFile());
 
-        TextExtractOption option = new TextExtractOption();
-        option.setMethod(TextExtractMethod.InsertControlTextBetweenParagraphText);
-        option.setWithControlChar(false);
-        option.setAppendEndingLF(true);
-
-        String hwpText = TextExtractor.extract(hwpFile, option);
-        ImageExtractionResult imageResult = extractImages(hwpFile, imageContext);
-        String contents = appendImageTags(hwpText, imageResult.tagText());
+        HwpImageTagResult imageTagResult = extractImages(hwpFile, imageContext);
+        String contents = extractTextWithImageTags(hwpFile, imageTagResult.imageTags());
         boolean hasContents = contents != null && !contents.isBlank();
 
-        return new TextExtractionResult(contents, "application/x-hwp", hasContents, imageResult.imgDatasJson());
+        return new TextExtractionResult(contents, "application/x-hwp", hasContents, imageTagResult.imgDatasJson());
     }
 
-    private ImageExtractionResult extractImages(HWPFile hwpFile, DocumentImageContext imageContext) throws Exception {
+    private String extractTextWithImageTags(HWPFile hwpFile, List<String> imageTags) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        int imageIndex = 0;
+
+        if (hwpFile.getBodyText() == null || hwpFile.getBodyText().getSectionList() == null) {
+            return "";
+        }
+
+        for (Section section : hwpFile.getBodyText().getSectionList()) {
+            if (section == null || section.getParagraphs() == null) {
+                continue;
+            }
+
+            for (Paragraph paragraph : section.getParagraphs()) {
+                if (paragraph == null) {
+                    continue;
+                }
+
+                String text = paragraph.getNormalString();
+                if (text != null && !text.isBlank()) {
+                    sb.append(text);
+                }
+
+                int pictureCount = countPictureControls(paragraph);
+                for (int i = 0; i < pictureCount && imageIndex < imageTags.size(); i++) {
+                    if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n') {
+                        sb.append('\n');
+                    }
+                    sb.append(imageTags.get(imageIndex++)).append('\n');
+                }
+
+                if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n') {
+                    sb.append('\n');
+                }
+            }
+        }
+
+        while (imageIndex < imageTags.size()) {
+            sb.append(imageTags.get(imageIndex++)).append('\n');
+        }
+
+        return sb.toString();
+    }
+
+    private int countPictureControls(Paragraph paragraph) {
+        if (paragraph.getControlList() == null || paragraph.getControlList().isEmpty()) {
+            return 0;
+        }
+
+        int count = 0;
+        for (Control control : paragraph.getControlList()) {
+            if (control instanceof ControlPicture) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private HwpImageTagResult extractImages(HWPFile hwpFile, DocumentImageContext imageContext) throws Exception {
         if (hwpFile.getBinData() == null || hwpFile.getBinData().getEmbeddedBinaryDataList() == null) {
-            return ImageExtractionResult.empty();
+            return HwpImageTagResult.empty();
         }
 
         LinkedHashMap<String, String> imagePaths = new LinkedHashMap<>();
+        List<String> imageTags = new ArrayList<>();
         int imageSeq = 0;
 
         for (EmbeddedBinaryData binaryData : hwpFile.getBinData().getEmbeddedBinaryDataList()) {
@@ -55,17 +111,17 @@ public class HwpTextExtractionService {
             }
 
             imageSeq = nextSeq;
-            imagePaths.put("img" + imageSeq, imagePath);
+            String imageKey = "img" + imageSeq;
+            imagePaths.put(imageKey, imagePath);
+            imageTags.add("<" + imageKey + "/>");
         }
 
-        return imageOutputService.toImageExtractionResult(imagePaths);
+        return new HwpImageTagResult(imageTags, imageOutputService.toJson(imagePaths));
     }
 
-    private String appendImageTags(String contents, String tagText) {
-        String base = contents == null ? "" : contents;
-        if (tagText == null || tagText.isBlank()) {
-            return base;
+    private record HwpImageTagResult(List<String> imageTags, String imgDatasJson) {
+        static HwpImageTagResult empty() {
+            return new HwpImageTagResult(List.of(), "[]");
         }
-        return base + "\n" + tagText;
     }
 }
