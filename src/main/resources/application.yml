@@ -13,9 +13,15 @@ spring:
 
 mybatis:
   mapper-locations: classpath:/mapper/**/*.xml
-  type-aliases-package: com.saltlux.nac.record
+  type-aliases-package: com.saltlux.nac.record,com.saltlux.nac.elecdoc
   configuration:
     map-underscore-to-camel-case: true
+
+document:
+  extract:
+    base-path: /data/file-data/elec_doc
+    default-transfer-year: 2023
+    batch-size: 100
 
 logging:
   level:
