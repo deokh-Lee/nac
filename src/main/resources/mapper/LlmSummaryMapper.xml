@@ -51,10 +51,10 @@
          AND B.SAVE_FILE_NAME = C.FILE_NAME
          AND C.EXTRACT_STATUS = 'PASS'
         WHERE C.INDEXING_CONTENTS IS NOT NULL
-          AND C.INDEXING_CONTENTS <> ''
+          AND C.INDEXING_CONTENTS != ''
           <choose>
               <when test="retryFail">
-                  AND (C.LLM_SUMMARY_STATUS IS NULL OR C.LLM_SUMMARY_STATUS <> 'PASS')
+                  AND (C.LLM_SUMMARY_STATUS IS NULL OR C.LLM_SUMMARY_STATUS != 'PASS')
               </when>
               <otherwise>
                   AND C.LLM_SUMMARY_STATUS IS NULL
