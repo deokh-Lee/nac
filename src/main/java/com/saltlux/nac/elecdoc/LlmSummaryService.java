@@ -1,5 +1,7 @@
 package com.saltlux.nac.elecdoc;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +29,7 @@ public class LlmSummaryService {
     private final LlmSummaryMapper llmSummaryMapper;
     private final DocumentLlmProperties properties;
     private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public LlmSummaryService(LlmSummaryMapper llmSummaryMapper,
                              DocumentLlmProperties properties,
@@ -93,11 +96,15 @@ public class LlmSummaryService {
 
             for (LlmSummaryTarget target : targets) {
                 try {
-                    String summary = callLlm(endpoint, target);
-                    llmSummaryMapper.updateSummarySuccess(target, cut(summary, properties.getMaxSummaryLength()));
+                    LlmSummaryResponse llmResult = callLlm(endpoint, target);
+                    llmSummaryMapper.updateSummarySuccess(
+                            target,
+                            llmResult.flag(),
+                            cut(llmResult.summary(), properties.getMaxSummaryLength())
+                    );
                     success++;
-                    log.info("LLM summary PASS | workerNo={} | fileName={} | zipSeq={} | rcRfileNo={} | rcRitemNo={}",
-                            workerNo, target.getFileName(), target.getZipSeq(), target.getRcRfileNo(), target.getRcRitemNo());
+                    log.info("LLM summary PASS | workerNo={} | flag={} | fileName={} | zipSeq={} | rcRfileNo={} | rcRitemNo={}",
+                            workerNo, llmResult.flag(), target.getFileName(), target.getZipSeq(), target.getRcRfileNo(), target.getRcRitemNo());
                 } catch (Exception e) {
                     llmSummaryMapper.updateSummaryFail(target, cut(safeMessage(e), 2000));
                     fail++;
@@ -111,7 +118,7 @@ public class LlmSummaryService {
         };
     }
 
-    private String callLlm(String endpoint, LlmSummaryTarget target) {
+    private LlmSummaryResponse callLlm(String endpoint, LlmSummaryTarget target) throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(List.of(MediaType.APPLICATION_JSON));
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -127,19 +134,23 @@ public class LlmSummaryService {
         );
 
         ResponseEntity<Map> response = restTemplate.postForEntity(endpoint, new HttpEntity<>(payload, headers), Map.class);
-        return parseContent(response.getBody());
+        String content = parseContent(response.getBody());
+        return parseSummaryJson(content);
     }
 
     private String buildUserPrompt(LlmSummaryTarget target) {
         StringBuilder sb = new StringBuilder();
-        sb.append("다음 기록물 문서를 500자 이내로 요약하세요.\n\n");
-        sb.append("[철 제목]\n").append(nullToEmpty(target.getBndTtl())).append("\n\n");
-        sb.append("[문서 제목]\n").append(nullToEmpty(target.getJemok())).append("\n\n");
-        sb.append("[파일명]\n").append(nullToEmpty(target.getFileName()));
-        if (StringUtils.hasText(target.getZipEntryFileName())) {
-            sb.append(" / ZIP 내부파일: ").append(target.getZipEntryFileName());
-        }
-        sb.append("\n\n[본문]\n").append(cut(nullToEmpty(target.getIndexingContents()), properties.getMaxContentLength()));
+        sb.append("[문서]\n");
+        sb.append("BND_TTL: ").append(nullToEmpty(target.getBndTtl())).append("\n");
+        sb.append("JEMOK: ").append(nullToEmpty(target.getJemok())).append("\n");
+        sb.append("INDEXING_CONTENTS:\n");
+        sb.append(cut(nullToEmpty(target.getIndexingContents()), properties.getMaxContentLength())).append("\n\n");
+        sb.append("[출력 형식]\n");
+        sb.append("반드시 아래 JSON 형식만 출력하세요. 설명 문장이나 코드블록은 출력하지 마세요.\n");
+        sb.append("{\n");
+        sb.append("  \"flag\": \"Y 또는 N\",\n");
+        sb.append("  \"summary\": \"flag가 Y인 경우 300자 이내 요약, flag가 N인 경우 빈 문자열\"\n");
+        sb.append("}\n");
         return sb.toString();
     }
 
@@ -170,6 +181,36 @@ public class LlmSummaryService {
         throw new IllegalStateException("LLM response has no content: " + body);
     }
 
+    private LlmSummaryResponse parseSummaryJson(String content) throws Exception {
+        String json = extractJson(content);
+        JsonNode root = objectMapper.readTree(json);
+        String flag = root.path("flag").asText("N").trim().toUpperCase();
+        if (!"Y".equals(flag)) {
+            flag = "N";
+        }
+        String summary = root.path("summary").asText("").trim();
+        if ("N".equals(flag)) {
+            summary = "";
+        }
+        return new LlmSummaryResponse(flag, summary);
+    }
+
+    private String extractJson(String content) {
+        if (!StringUtils.hasText(content)) {
+            throw new IllegalStateException("LLM response content is empty");
+        }
+        String trimmed = content.trim();
+        if (trimmed.startsWith("```") ) {
+            trimmed = trimmed.replaceFirst("^```[a-zA-Z]*", "").replaceFirst("```$", "").trim();
+        }
+        int start = trimmed.indexOf('{');
+        int end = trimmed.lastIndexOf('}');
+        if (start < 0 || end < start) {
+            throw new IllegalStateException("LLM response is not JSON: " + content);
+        }
+        return trimmed.substring(start, end + 1);
+    }
+
     private String cut(String value, int maxLength) {
         if (value == null) {
             return "";
@@ -192,5 +233,8 @@ public class LlmSummaryService {
     }
 
     private record WorkerResult(int successCount, int failCount) {
+    }
+
+    private record LlmSummaryResponse(String flag, String summary) {
     }
 }
