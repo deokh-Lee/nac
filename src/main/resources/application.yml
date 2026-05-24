@@ -29,6 +29,18 @@ document:
     thread-count: 4
     chunk-size: 25
     file-timeout-seconds: 60
+    llm:
+      endpoints:
+        - http://192.168.250.25:13006/v1/chat/completions
+        - http://192.168.250.25:14006/v1/chat/completions
+        - http://192.168.250.25:15006/v1/chat/completions
+        - http://192.168.250.25:16006/v1/chat/completions
+      model: local-model
+      per-worker-size: 10
+      timeout-seconds: 120
+      max-content-length: 12000
+      max-summary-length: 500
+      system-prompt: "당신은 국가기록물 문서를 요약하는 전문 어시스턴트입니다. 제목과 본문을 보고 핵심 내용을 한국어로 간결하게 요약하세요."
 
 logging:
   file:
