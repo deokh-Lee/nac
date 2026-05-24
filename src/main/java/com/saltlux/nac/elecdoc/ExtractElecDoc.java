@@ -3,6 +3,7 @@ package com.saltlux.nac.elecdoc;
 public class ExtractElecDoc {
 
     private String fileName;
+    private String zipEntryFileName;
     private String rcRfileNo;
     private String rcRitemNo;
     private Integer zipSeq;
@@ -24,6 +25,8 @@ public class ExtractElecDoc {
 
     public String getFileName() { return fileName; }
     public void setFileName(String fileName) { this.fileName = fileName; }
+    public String getZipEntryFileName() { return zipEntryFileName; }
+    public void setZipEntryFileName(String zipEntryFileName) { this.zipEntryFileName = zipEntryFileName; }
     public String getRcRfileNo() { return rcRfileNo; }
     public void setRcRfileNo(String rcRfileNo) { this.rcRfileNo = rcRfileNo; }
     public String getRcRitemNo() { return rcRitemNo; }
