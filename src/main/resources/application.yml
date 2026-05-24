@@ -28,7 +28,7 @@ document:
     batch-size: 100
     thread-count: 4
     chunk-size: 25
-    file-timeout-seconds: 300
+    file-timeout-seconds: 60
 
 logging:
   file:
