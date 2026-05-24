@@ -58,6 +58,7 @@ public class LlmSummaryService {
         List<Future<WorkerResult>> futures = new ArrayList<>();
 
         try {
+            int submittedCount = 0;
             for (int i = 0; i < workerCount; i++) {
                 int fromIndex = i * perWorkerSize;
                 if (fromIndex >= targets.size()) {
@@ -66,6 +67,7 @@ public class LlmSummaryService {
                 int toIndex = Math.min(fromIndex + perWorkerSize, targets.size());
                 String endpoint = properties.getEndpoints().get(i);
                 List<LlmSummaryTarget> workerTargets = targets.subList(fromIndex, toIndex);
+                submittedCount += workerTargets.size();
                 futures.add(executorService.submit(createWorkerTask(i + 1, endpoint, workerTargets)));
             }
 
@@ -82,10 +84,62 @@ public class LlmSummaryService {
                 }
             }
 
-            return new LlmSummaryBatchResult(targetYear, requestCount, targets.size(), workerCount, perWorkerSize, success, fail);
+            return new LlmSummaryBatchResult(targetYear, requestCount, submittedCount, workerCount, perWorkerSize, success, fail);
         } finally {
             executorService.shutdown();
         }
+    }
+
+    public LlmSummaryAllBatchResult summarizeAll(String transferYear, Integer limit, Integer maxLoop, Boolean retryFail) {
+        String targetYear = StringUtils.hasText(transferYear) ? transferYear : "2023";
+        int workerCount = Math.max(1, properties.getEndpoints().size());
+        int perWorkerSize = Math.max(1, properties.getPerWorkerSize());
+        int batchSize = limit == null || limit <= 0 ? workerCount * perWorkerSize : limit;
+        int loopLimit = maxLoop == null || maxLoop <= 0 ? 10_000 : maxLoop;
+        boolean shouldRetryFail = Boolean.TRUE.equals(retryFail);
+
+        int loopCount = 0;
+        int totalTargetCount = 0;
+        int totalSuccessCount = 0;
+        int totalFailCount = 0;
+        boolean completed = false;
+
+        while (loopCount < loopLimit) {
+            loopCount++;
+            LlmSummaryBatchResult result = summarizeBatch(targetYear, batchSize, shouldRetryFail);
+
+            totalTargetCount += result.targetCount();
+            totalSuccessCount += result.successCount();
+            totalFailCount += result.failCount();
+
+            log.info("llm-summary/all loop#{} | year={} | batchSize={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
+                    loopCount,
+                    targetYear,
+                    batchSize,
+                    result.targetCount(),
+                    result.successCount(),
+                    result.failCount(),
+                    totalTargetCount,
+                    totalSuccessCount,
+                    totalFailCount);
+
+            if (result.targetCount() == 0) {
+                completed = true;
+                break;
+            }
+        }
+
+        return new LlmSummaryAllBatchResult(
+                targetYear,
+                batchSize,
+                loopLimit,
+                shouldRetryFail,
+                loopCount,
+                totalTargetCount,
+                totalSuccessCount,
+                totalFailCount,
+                completed
+        );
     }
 
     private Callable<WorkerResult> createWorkerTask(int workerNo, String endpoint, List<LlmSummaryTarget> targets) {
