@@ -17,7 +17,6 @@ public class OfficialDocumentPostProcessor {
     private static final Pattern RECV_SPACE = Pattern.compile("\\uC811\\s*\\uC218\\s+([^\\s()|]+)\\s*(?:\\|\\s*)?\\((\\d{4})\\s*[.\\-/]\\s*(\\d{1,2})\\s*[.\\-/]\\s*(\\d{1,2})");
     private static final Pattern BODY_START_NUMBERED = Pattern.compile("(?m)^\\s*1\\s*[.]\\s+.*$");
     private static final Pattern BODY_END = Pattern.compile("\\uB05D\\s*\\.");
-    private static final Pattern AFTER_END_FOOTER = Pattern.compile("(?s)\\uB05D\\s*\\..*$");
 
     public void apply(ExtractElecDoc extract) {
         if (extract == null || !StringUtils.hasText(extract.getFileName()) || !N_FILE.matcher(extract.getFileName()).matches()) return;
@@ -88,10 +87,6 @@ public class OfficialDocumentPostProcessor {
                 .replaceAll("\\s*<img\\d+/>\\s*", " ")
                 .replaceAll("\\n{3,}", "\\n\\n")
                 .trim();
-        Matcher footer = AFTER_END_FOOTER.matcher(cleaned);
-        if (footer.find()) {
-            cleaned = footer.group();
-        }
         return cleaned.isBlank() ? null : cleaned;
     }
 
