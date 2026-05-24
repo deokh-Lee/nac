@@ -56,6 +56,7 @@
     <insert id="upsertExtractDocument" parameterType="ExtractElecDoc">
         INSERT INTO EXTRACT_ELEC_DOC (
             FILE_NAME,
+            ZIP_ENTRY_FILE_NAME,
             RC_RFILE_NO,
             RC_RITEM_NO,
             ZIP_SEQ,
@@ -74,6 +75,7 @@
             UPDATE_DATE
         ) VALUES (
             #{fileName},
+            #{zipEntryFileName},
             #{rcRfileNo},
             #{rcRitemNo},
             #{zipSeq},
@@ -92,6 +94,7 @@
             NOW()
         )
         ON DUPLICATE KEY UPDATE
+            ZIP_ENTRY_FILE_NAME = VALUES(ZIP_ENTRY_FILE_NAME),
             ZIP_SEQ = VALUES(ZIP_SEQ),
             CONTENTS = VALUES(CONTENTS),
             IMG_DATAS = VALUES(IMG_DATAS),
