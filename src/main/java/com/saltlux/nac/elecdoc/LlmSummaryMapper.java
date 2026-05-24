@@ -12,6 +12,7 @@ public interface LlmSummaryMapper {
                                                @Param("retryFail") boolean retryFail);
 
     int updateSummarySuccess(@Param("target") LlmSummaryTarget target,
+                             @Param("flag") String flag,
                              @Param("summary") String summary);
 
     int updateSummaryFail(@Param("target") LlmSummaryTarget target,
