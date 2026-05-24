@@ -15,6 +15,8 @@ public class OfficialDocumentPostProcessor {
     private static final Pattern RECV_PIPE = Pattern.compile("\\uC811\\s*\\uC218\\s*\\|\\s*([^|()]+?)\\s*\\|\\s*\\((\\d{4})\\s*[.\\-/]\\s*(\\d{1,2})\\s*[.\\-/]\\s*(\\d{1,2})\\s*[.]?\\s*\\)");
     private static final Pattern IMPL_SPACE = Pattern.compile("\\uC2DC\\s*\\uD589\\s+([^\\s()|]+)\\s*(?:\\|\\s*)?\\((\\d{4})\\s*[.\\-/]\\s*(\\d{1,2})\\s*[.\\-/]\\s*(\\d{1,2})");
     private static final Pattern RECV_SPACE = Pattern.compile("\\uC811\\s*\\uC218\\s+([^\\s()|]+)\\s*(?:\\|\\s*)?\\((\\d{4})\\s*[.\\-/]\\s*(\\d{1,2})\\s*[.\\-/]\\s*(\\d{1,2})");
+    private static final Pattern IMPL_NO_DATE_PIPE = Pattern.compile("\\uC2DC\\s*\\uD589\\s*\\|\\s*([^|()]+?)(?=\\s*\\|\\s*(?:\\uC811\\s*\\uC218|\\uC6B0|\\uC804\\uD654|\\uC804\\uC1A1|\\uD329\\uC2A4|/|$))");
+    private static final Pattern RECV_NO_DATE_PIPE = Pattern.compile("\\uC811\\s*\\uC218\\s*\\|\\s*([^|()]+?)(?=\\s*\\|\\s*(?:\\uC6B0|\\uC804\\uD654|\\uC804\\uC1A1|\\uD329\\uC2A4|/|$))");
     private static final Pattern BODY_START_NUMBERED = Pattern.compile("(?m)^\\s*1\\s*[.]\\s+.*$");
     private static final Pattern BODY_END = Pattern.compile("\\uB05D\\s*\\.");
 
@@ -23,8 +25,8 @@ public class OfficialDocumentPostProcessor {
         if (!StringUtils.hasText(extract.getContents())) return;
         String text = normalize(extract.getContents());
         extract.setHwpSubTitle(matchTitle(text));
-        applyDocNoDate(text, IMPL_PIPE, IMPL_SPACE, true, extract);
-        applyDocNoDate(text, RECV_PIPE, RECV_SPACE, false, extract);
+        applyDocNoDate(text, IMPL_PIPE, IMPL_SPACE, IMPL_NO_DATE_PIPE, true, extract);
+        applyDocNoDate(text, RECV_PIPE, RECV_SPACE, RECV_NO_DATE_PIPE, false, extract);
         String body = matchBody(text);
         if (StringUtils.hasText(body)) extract.setIndexingContents(body);
     }
@@ -36,14 +38,29 @@ public class OfficialDocumentPostProcessor {
         return line.find() ? clean(line.group(1)) : null;
     }
 
-    private void applyDocNoDate(String text, Pattern primary, Pattern fallback, boolean implementation, ExtractElecDoc extract) {
+    private void applyDocNoDate(String text, Pattern primary, Pattern fallback, Pattern noDateFallback, boolean implementation, ExtractElecDoc extract) {
         Matcher m = primary.matcher(text);
         if (!m.find()) {
             m = fallback.matcher(text);
-            if (!m.find()) return;
         }
-        String no = clean(m.group(1));
-        String date = String.format("%04d-%02d-%02d", Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3)), Integer.parseInt(m.group(4)));
+
+        if (m.find()) {
+            String no = clean(m.group(1));
+            String date = String.format("%04d-%02d-%02d", Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3)), Integer.parseInt(m.group(4)));
+            applyDocNoDateValue(implementation, extract, no, date);
+            return;
+        }
+
+        Matcher noDateMatcher = noDateFallback.matcher(text);
+        if (noDateMatcher.find()) {
+            String no = clean(noDateMatcher.group(1));
+            if (isValidDocNo(no)) {
+                applyDocNoDateValue(implementation, extract, no, null);
+            }
+        }
+    }
+
+    private void applyDocNoDateValue(boolean implementation, ExtractElecDoc extract, String no, String date) {
         if (implementation) {
             extract.setImplementOrg(no);
             extract.setImplementDate(date);
@@ -51,6 +68,13 @@ public class OfficialDocumentPostProcessor {
             extract.setReceiptOrg(no);
             extract.setReceiptDate(date);
         }
+    }
+
+    private boolean isValidDocNo(String value) {
+        if (!StringUtils.hasText(value)) return false;
+        String cleaned = value.trim();
+        if (cleaned.equals("우") || cleaned.startsWith("우 ") || cleaned.startsWith("전화") || cleaned.startsWith("전송") || cleaned.startsWith("팩스")) return false;
+        return cleaned.matches(".*-\\d+.*");
     }
 
     private String matchBody(String text) {
