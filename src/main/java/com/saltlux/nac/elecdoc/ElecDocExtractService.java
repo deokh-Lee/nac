@@ -206,7 +206,7 @@ public class ElecDocExtractService {
                     document.getRcRitemNo(),
                     filePath);
             long startTime = System.currentTimeMillis();
-            extractZipEntries(document, filePath);
+            extractZipEntries(document, filePath, fileName);
             log.info("END extract ZIP | fileName={} | rcRfileNo={} | rcRitemNo={} | elapsedMs={}",
                     fileName,
                     document.getRcRfileNo(),
@@ -220,9 +220,9 @@ public class ElecDocExtractService {
         elecDocMapper.upsertExtractDocument(extract);
     }
 
-    private void extractZipEntries(CnElecDoc document, Path zipFilePath) {
+    private void extractZipEntries(CnElecDoc document, Path zipFilePath, String zipFileName) {
         if (!Files.exists(zipFilePath)) {
-            ExtractElecDoc failExtract = createBaseExtract(document, documentPathResolver.resolveFileName(document), NORMAL_FILE_ZIP_SEQ);
+            ExtractElecDoc failExtract = createBaseExtract(document, zipFileName, NORMAL_FILE_ZIP_SEQ);
             failExtract.setFileType("ZIP");
             failExtract.setFileGubun("ZIP");
             failExtract.setHasContents("N");
@@ -250,7 +250,8 @@ public class ElecDocExtractService {
                 }
 
                 seq++;
-                ExtractElecDoc extract = createBaseExtract(document, entryFileName, seq);
+                ExtractElecDoc extract = createBaseExtract(document, zipFileName, seq);
+                extract.setZipEntryFileName(entryFileName);
                 extract.setFileType("ZIP");
                 extract.setFileGubun(FileTypeUtils.fileGubunOf(entryFileName));
 
@@ -273,7 +274,7 @@ public class ElecDocExtractService {
             }
 
             if (seq == 0) {
-                ExtractElecDoc emptyExtract = createBaseExtract(document, documentPathResolver.resolveFileName(document), NORMAL_FILE_ZIP_SEQ);
+                ExtractElecDoc emptyExtract = createBaseExtract(document, zipFileName, NORMAL_FILE_ZIP_SEQ);
                 emptyExtract.setFileType("ZIP");
                 emptyExtract.setFileGubun("ZIP");
                 emptyExtract.setHasContents("N");
@@ -282,7 +283,7 @@ public class ElecDocExtractService {
                 elecDocMapper.upsertExtractDocument(emptyExtract);
             }
         } catch (Exception e) {
-            ExtractElecDoc failExtract = createBaseExtract(document, documentPathResolver.resolveFileName(document), NORMAL_FILE_ZIP_SEQ);
+            ExtractElecDoc failExtract = createBaseExtract(document, zipFileName, NORMAL_FILE_ZIP_SEQ);
             failExtract.setFileType("ZIP");
             failExtract.setFileGubun("ZIP");
             failExtract.setHasContents("N");
@@ -298,8 +299,9 @@ public class ElecDocExtractService {
                                    String forcedFileType,
                                    DocumentImageContext imageContext) {
         long startTime = System.currentTimeMillis();
-        log.info("START extract file | fileName={} | rcRfileNo={} | rcRitemNo={} | zipSeq={} | fileGubun={} | timeoutSec={} | path={}",
-                targetFileName,
+        log.info("START extract file | fileName={} | zipEntryFileName={} | rcRfileNo={} | rcRitemNo={} | zipSeq={} | fileGubun={} | timeoutSec={} | path={}",
+                extract.getFileName(),
+                extract.getZipEntryFileName(),
                 extract.getRcRfileNo(),
                 extract.getRcRitemNo(),
                 extract.getZipSeq(),
@@ -324,9 +326,10 @@ public class ElecDocExtractService {
             extract.setExtractStatus("FAIL");
             extract.setExtractErrMsg(shortErrorMessage(e));
         } finally {
-            log.info("END extract file | status={} | fileName={} | rcRfileNo={} | rcRitemNo={} | zipSeq={} | hasContents={} | elapsedMs={}",
+            log.info("END extract file | status={} | fileName={} | zipEntryFileName={} | rcRfileNo={} | rcRitemNo={} | zipSeq={} | hasContents={} | elapsedMs={}",
                     extract.getExtractStatus(),
-                    targetFileName,
+                    extract.getFileName(),
+                    extract.getZipEntryFileName(),
                     extract.getRcRfileNo(),
                     extract.getRcRitemNo(),
                     extract.getZipSeq(),
