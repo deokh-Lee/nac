@@ -74,23 +74,18 @@ public class ElecDocExtractService {
         }
 
         int threadCount = Math.max(1, properties.getThreadCount());
-        int chunkSize = Math.max(1, properties.getChunkSize());
-        List<List<CnElecDoc>> chunks = partition(documents, chunkSize);
+        long batchStartTime = System.currentTimeMillis();
 
-        log.info("extract batch parallel start | total={} | threadCount={} | chunkSize={} | chunks={}",
-                documents.size(),
-                threadCount,
-                chunkSize,
-                chunks.size());
+        log.info("extract batch worker-queue start | total={} | threadCount={}", documents.size(), threadCount);
 
         ExecutorService executorService = Executors.newFixedThreadPool(threadCount);
         List<Future<BatchCounter>> futures = new ArrayList<>();
 
         try {
-            int chunkNo = 0;
-            for (List<CnElecDoc> chunk : chunks) {
-                int currentChunkNo = ++chunkNo;
-                futures.add(executorService.submit(createChunkTask(currentChunkNo, chunk)));
+            int fileNo = 0;
+            for (CnElecDoc document : documents) {
+                int currentFileNo = ++fileNo;
+                futures.add(executorService.submit(createDocumentTask(currentFileNo, documents.size(), document)));
             }
 
             int successCount = 0;
@@ -102,65 +97,51 @@ public class ElecDocExtractService {
                     failCount += result.failCount();
                 } catch (Exception e) {
                     failCount++;
-                    log.warn("extract chunk failed. error={}", shortErrorMessage(e));
+                    log.warn("extract file task failed. error={}", shortErrorMessage(e));
                 }
             }
 
-            log.info("extract batch parallel end | total={} | success={} | fail={}",
+            log.info("extract batch worker-queue end | total={} | success={} | fail={} | elapsedMs={}",
                     documents.size(),
                     successCount,
-                    failCount);
+                    failCount,
+                    System.currentTimeMillis() - batchStartTime);
             return new BatchCounter(successCount, failCount);
         } finally {
             executorService.shutdown();
         }
     }
 
-    private Callable<BatchCounter> createChunkTask(int chunkNo, List<CnElecDoc> chunk) {
+    private Callable<BatchCounter> createDocumentTask(int fileNo, int totalCount, CnElecDoc document) {
         return () -> {
-            int successCount = 0;
-            int failCount = 0;
+            String fileName = documentPathResolver.resolveFileName(document);
+            log.info("extract task start | fileNo={}/{} | thread={} | fileName={} | rcRfileNo={} | rcRitemNo={}",
+                    fileNo,
+                    totalCount,
+                    Thread.currentThread().getName(),
+                    fileName,
+                    document.getRcRfileNo(),
+                    document.getRcRitemNo());
+
             long startTime = System.currentTimeMillis();
-
-            log.info("extract chunk start | chunkNo={} | size={} | thread={}",
-                    chunkNo,
-                    chunk.size(),
-                    Thread.currentThread().getName());
-
-            for (CnElecDoc document : chunk) {
-                try {
-                    extractOne(document);
-                    successCount++;
-                } catch (Exception e) {
-                    failCount++;
-                    log.warn("Document extraction skipped. chunkNo={} | transferYear={} | rcRfileNo={} | rcRitemNo={} | fileName={} | error={}",
-                            chunkNo,
-                            document.getTransferYear(),
-                            document.getRcRfileNo(),
-                            document.getRcRitemNo(),
-                            documentPathResolver.resolveFileName(document),
-                            shortErrorMessage(e));
-                }
+            try {
+                extractOne(document);
+                log.info("extract task end | fileNo={}/{} | status=SUCCESS | fileName={} | elapsedMs={}",
+                        fileNo,
+                        totalCount,
+                        fileName,
+                        System.currentTimeMillis() - startTime);
+                return new BatchCounter(1, 0);
+            } catch (Exception e) {
+                log.warn("extract task end | fileNo={}/{} | status=FAIL | fileName={} | elapsedMs={} | error={}",
+                        fileNo,
+                        totalCount,
+                        fileName,
+                        System.currentTimeMillis() - startTime,
+                        shortErrorMessage(e));
+                return new BatchCounter(0, 1);
             }
-
-            log.info("extract chunk end | chunkNo={} | size={} | success={} | fail={} | elapsedMs={}",
-                    chunkNo,
-                    chunk.size(),
-                    successCount,
-                    failCount,
-                    System.currentTimeMillis() - startTime);
-
-            return new BatchCounter(successCount, failCount);
         };
-    }
-
-    private List<List<CnElecDoc>> partition(List<CnElecDoc> documents, int chunkSize) {
-        List<List<CnElecDoc>> chunks = new ArrayList<>();
-        for (int start = 0; start < documents.size(); start += chunkSize) {
-            int end = Math.min(start + chunkSize, documents.size());
-            chunks.add(documents.subList(start, end));
-        }
-        return chunks;
     }
 
     public ExtractAllBatchResult extractAll(String transferYear, Integer limit, Integer maxLoop, Boolean retryFail) {
