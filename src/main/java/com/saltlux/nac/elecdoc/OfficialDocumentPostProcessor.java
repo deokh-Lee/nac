@@ -10,12 +10,14 @@ public class OfficialDocumentPostProcessor {
     private static final Pattern N_FILE = Pattern.compile(".*_[Nn]\\d{2}\\..*");
     private static final Pattern TITLE_LINE = Pattern.compile("(?m)^\\s*\\uC81C\\s*\\uBAA9\\s*[|:]?\\s*(.+)$");
     private static final Pattern TITLE_PIPE = Pattern.compile("(?:^|\\|)\\s*\\uC81C\\s*\\uBAA9\\s*\\|\\s*(.+?)(?=\\s*(?:\\||\\n)\\s*(?:1\\s*[.]|\\uC2DC\\s*\\uD589|\\uC811\\s*\\uC218|\\uC6B0\\s*\\||\\uC804\\uD654|\\uD329\\uC2A4|$))");
+    private static final Pattern TITLE_MARKER = Pattern.compile("\\uC81C\\s*\\uBAA9\\s*\\|\\s*.+?(?=\\n|$)");
     private static final Pattern IMPL_PIPE = Pattern.compile("\\uC2DC\\s*\\uD589\\s*\\|\\s*([^|()]+?)\\s*\\|\\s*\\((\\d{4})\\s*[.\\-/]\\s*(\\d{1,2})\\s*[.\\-/]\\s*(\\d{1,2})\\s*[.]?\\s*\\)");
     private static final Pattern RECV_PIPE = Pattern.compile("\\uC811\\s*\\uC218\\s*\\|\\s*([^|()]+?)\\s*\\|\\s*\\((\\d{4})\\s*[.\\-/]\\s*(\\d{1,2})\\s*[.\\-/]\\s*(\\d{1,2})\\s*[.]?\\s*\\)");
     private static final Pattern IMPL_SPACE = Pattern.compile("\\uC2DC\\s*\\uD589\\s+([^\\s()|]+)\\s*(?:\\|\\s*)?\\((\\d{4})\\s*[.\\-/]\\s*(\\d{1,2})\\s*[.\\-/]\\s*(\\d{1,2})");
     private static final Pattern RECV_SPACE = Pattern.compile("\\uC811\\s*\\uC218\\s+([^\\s()|]+)\\s*(?:\\|\\s*)?\\((\\d{4})\\s*[.\\-/]\\s*(\\d{1,2})\\s*[.\\-/]\\s*(\\d{1,2})");
-    private static final Pattern BODY_START = Pattern.compile("(?m)^\\s*1\\s*[.]\\s+.*$");
+    private static final Pattern BODY_START_NUMBERED = Pattern.compile("(?m)^\\s*1\\s*[.]\\s+.*$");
     private static final Pattern BODY_END = Pattern.compile("\\uB05D\\s*\\.");
+    private static final Pattern AFTER_END_FOOTER = Pattern.compile("(?s)\\uB05D\\s*\\..*$");
 
     public void apply(ExtractElecDoc extract) {
         if (extract == null || !StringUtils.hasText(extract.getFileName()) || !N_FILE.matcher(extract.getFileName()).matches()) return;
@@ -53,13 +55,44 @@ public class OfficialDocumentPostProcessor {
     }
 
     private String matchBody(String text) {
-        Matcher s = BODY_START.matcher(text);
+        String byTitle = matchBodyAfterTitle(text);
+        if (StringUtils.hasText(byTitle)) return byTitle;
+
+        Matcher s = BODY_START_NUMBERED.matcher(text);
         if (!s.find()) return null;
-        int start = s.start();
+        return substringUntilEnd(text, s.start());
+    }
+
+    private String matchBodyAfterTitle(String text) {
+        Matcher title = TITLE_MARKER.matcher(text);
+        if (!title.find()) return null;
+        int start = title.end();
+        return substringUntilEnd(text, start);
+    }
+
+    private String substringUntilEnd(String text, int start) {
         Matcher e = BODY_END.matcher(text);
         int end = text.length();
         if (e.find(start)) end = e.end();
-        return text.substring(start, end).replaceAll("\\n{3,}", "\\n\\n").trim();
+        String body = text.substring(start, end);
+        return cleanBody(body);
+    }
+
+    private String cleanBody(String value) {
+        if (value == null) return null;
+        String cleaned = value
+                .replaceAll("(?m)^\\s*[|]+\\s*", "")
+                .replaceAll("(?m)^\\s*(수신자|경유|제목)\\s*[|:].*$", "")
+                .replaceAll("(?m)^\\s*(행정안전부장관|교육과학기술부장관|.*장관)\\s*$", "")
+                .replaceAll("(?m)^\\s*(주무관|행정사무관|.*과장|협조자|시행|접수|우|전화|전송|팩스|비공개)\\b.*$", "")
+                .replaceAll("\\s*<img\\d+/>\\s*", " ")
+                .replaceAll("\\n{3,}", "\\n\\n")
+                .trim();
+        Matcher footer = AFTER_END_FOOTER.matcher(cleaned);
+        if (footer.find()) {
+            cleaned = footer.group();
+        }
+        return cleaned.isBlank() ? null : cleaned;
     }
 
     private String normalize(String value) {
