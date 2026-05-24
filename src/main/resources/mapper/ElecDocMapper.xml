@@ -36,10 +36,7 @@
               FROM EXTRACT_ELEC_DOC E
               WHERE E.RC_RFILE_NO = CN_ELEC_DOC.RC_RFILE_NO
                 AND E.RC_RITEM_NO = CN_ELEC_DOC.RC_RITEM_NO
-                AND (
-                    E.FILE_NAME = CN_ELEC_DOC.SAVE_FILE_NAME
-                    OR E.ZIP_SEQ IS NOT NULL
-                )
+                AND E.FILE_NAME = CN_ELEC_DOC.SAVE_FILE_NAME
                 <choose>
                     <when test="retryFail">
                         AND E.EXTRACT_STATUS = 'PASS'
