@@ -12,14 +12,21 @@ import org.apache.tika.metadata.Metadata;
 import org.apache.tika.metadata.TikaCoreProperties;
 import org.apache.tika.parser.AutoDetectParser;
 import org.apache.tika.sax.BodyContentHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.xml.sax.SAXException;
 
 @Service
 public class TextExtractionService {
 
+    private static final Logger log = LoggerFactory.getLogger(TextExtractionService.class);
+
     private static final int WRITE_LIMIT = -1;
     private static final String PDF_MEDIA_TYPE = "application/pdf";
+    private static final String HWP_MEDIA_TYPE = "application/x-hwp";
+    private static final String HWP_TIKA_FALLBACK_MEDIA_TYPE = "application/x-hwp+tika-fallback";
+    private static final String HWP_PARAGRAPH_ERROR_MESSAGE = "This is not paragraph.";
     private static final String NULL_CHARACTER = String.valueOf('\u0000');
     private static final Pattern INLINE_WHITESPACE_PATTERN = Pattern.compile("[ \\t\\x0B\\f\\r]+");
     private static final Pattern PAGE_NUMBER_LINE_PATTERN = Pattern.compile("(?m)^\\s*[-–—]?\\s*\\d+\\s*[-–—]?\\s*$");
@@ -69,10 +76,25 @@ public class TextExtractionService {
     }
 
     private TextExtractionResult extractHwpAsSingleText(Path path, DocumentImageContext imageContext) throws Exception {
-        TextExtractionResult result = hwpTextExtractionService.extract(path, imageContext);
+        try {
+            TextExtractionResult result = hwpTextExtractionService.extract(path, imageContext);
+            String contents = normalizeForSingleDocument(result.contents());
+            boolean hasContents = contents != null && !contents.isBlank();
+            return new TextExtractionResult(contents, result.fileType(), hasContents, result.imgDatas());
+        } catch (Exception e) {
+            if (isHwpParagraphParseError(e)) {
+                log.warn("HWP parser failed with paragraph error. Retry with Tika. file={}, error={}", path, safeMessage(rootCause(e)));
+                return extractHwpByTikaFallback(path);
+            }
+            throw e;
+        }
+    }
+
+    private TextExtractionResult extractHwpByTikaFallback(Path path) throws Exception {
+        TextExtractionResult result = extractByTika(path, HWP_MEDIA_TYPE);
         String contents = normalizeForSingleDocument(result.contents());
         boolean hasContents = contents != null && !contents.isBlank();
-        return new TextExtractionResult(contents, result.fileType(), hasContents, result.imgDatas());
+        return new TextExtractionResult(contents, HWP_TIKA_FALLBACK_MEDIA_TYPE, hasContents, "[]");
     }
 
     private TextExtractionResult extractHwpxAsSingleText(Path path, DocumentImageContext imageContext) throws Exception {
@@ -137,6 +159,26 @@ public class TextExtractionService {
         if (!Files.isRegularFile(path)) {
             throw new DocumentExtractionException("NOT_REGULAR_FILE", "Path is not a file: " + path, null);
         }
+    }
+
+    private boolean isHwpParagraphParseError(Throwable e) {
+        Throwable current = e;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.contains(HWP_PARAGRAPH_ERROR_MESSAGE)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private Throwable rootCause(Throwable e) {
+        Throwable current = e;
+        while (current != null && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current == null ? e : current;
     }
 
     private String normalizeForSingleDocument(String value) {
