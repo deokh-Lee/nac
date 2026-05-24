@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.saltlux.nac.elecdoc.LlmSummaryMapper">
+
+    <resultMap id="LlmSummaryTargetResultMap" type="LlmSummaryTarget">
+        <result property="bndTtl" column="BND_TTL"/>
+        <result property="jemok" column="JEMOK"/>
+        <result property="rcCode" column="RC_CODE"/>
+        <result property="rcRfileNo" column="RC_RFILE_NO"/>
+        <result property="rcRitemNo" column="RC_RITEM_NO"/>
+        <result property="orgFilePath" column="ORG_FILE_PATH"/>
+        <result property="orgFileName" column="ORG_FILE_NAME"/>
+        <result property="saveFileName" column="SAVE_FILE_NAME"/>
+        <result property="fileName" column="FILE_NAME"/>
+        <result property="contents" column="CONTENTS"/>
+        <result property="indexingContents" column="INDEXING_CONTENTS"/>
+        <result property="zipSeq" column="ZIP_SEQ"/>
+        <result property="zipEntryFileName" column="ZIP_ENTRY_FILE_NAME"/>
+        <result property="fileType" column="FILE_TYPE"/>
+        <result property="fileGubun" column="FILE_GUBUN"/>
+    </resultMap>
+
+    <select id="findSummaryTargets" resultMap="LlmSummaryTargetResultMap">
+        SELECT
+            A.BND_TTL,
+            A.JEMOK,
+            A.RC_CODE,
+            A.RC_RFILE_NO,
+            A.RC_RITEM_NO,
+            B.ORG_FILE_PATH,
+            B.ORG_FILE_NAME,
+            B.SAVE_FILE_NAME,
+            C.FILE_NAME,
+            C.CONTENTS,
+            C.INDEXING_CONTENTS,
+            C.ZIP_SEQ,
+            C.ZIP_ENTRY_FILE_NAME,
+            C.FILE_TYPE,
+            C.FILE_GUBUN
+        FROM CN_RITEM A
+        JOIN CN_ELEC_DOC B
+          ON A.RC_RFILE_NO = B.RC_RFILE_NO
+         AND A.RC_RITEM_NO = B.RC_RITEM_NO
+         AND B.TRANSFERYEAR = #{transferYear}
+        JOIN EXTRACT_ELEC_DOC C
+          ON B.RC_RFILE_NO = C.RC_RFILE_NO
+         AND B.RC_RITEM_NO = C.RC_RITEM_NO
+         AND B.SAVE_FILE_NAME = C.FILE_NAME
+         AND C.EXTRACT_STATUS = 'PASS'
+        WHERE C.INDEXING_CONTENTS IS NOT NULL
+          AND C.INDEXING_CONTENTS <> ''
+          <choose>
+              <when test="retryFail">
+                  AND (C.LLM_SUMMARY_STATUS IS NULL OR C.LLM_SUMMARY_STATUS <> 'PASS')
+              </when>
+              <otherwise>
+                  AND C.LLM_SUMMARY_STATUS IS NULL
+              </otherwise>
+          </choose>
+        ORDER BY A.RC_RFILE_NO, A.RC_RITEM_NO, C.FILE_NAME, C.ZIP_SEQ
+        LIMIT #{limit}
+    </select>
+
+    <update id="updateSummarySuccess">
+        UPDATE EXTRACT_ELEC_DOC
+        SET SUMMARY = #{summary},
+            SUMMARY_FLAG = 'Y',
+            LLM_SUMMARY_STATUS = 'PASS',
+            LLM_SUMMARY_ERR_MSG = NULL,
+            SUMMARY_TIME = NOW(3),
+            UPDATE_DATE = NOW()
+        WHERE FILE_NAME = #{target.fileName}
+          AND RC_RFILE_NO = #{target.rcRfileNo}
+          AND RC_RITEM_NO = #{target.rcRitemNo}
+          AND ZIP_SEQ = #{target.zipSeq}
+    </update>
+
+    <update id="updateSummaryFail">
+        UPDATE EXTRACT_ELEC_DOC
+        SET SUMMARY_FLAG = 'N',
+            LLM_SUMMARY_STATUS = 'FAIL',
+            LLM_SUMMARY_ERR_MSG = #{errorMessage},
+            SUMMARY_TIME = NOW(3),
+            UPDATE_DATE = NOW()
+        WHERE FILE_NAME = #{target.fileName}
+          AND RC_RFILE_NO = #{target.rcRfileNo}
+          AND RC_RITEM_NO = #{target.rcRitemNo}
+          AND ZIP_SEQ = #{target.zipSeq}
+    </update>
+
+</mapper>
