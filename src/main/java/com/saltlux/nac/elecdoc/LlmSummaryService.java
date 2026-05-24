@@ -37,8 +37,8 @@ public class LlmSummaryService {
         this.llmSummaryMapper = llmSummaryMapper;
         this.properties = properties;
         this.restTemplate = restTemplateBuilder
-                .connectTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
-                .readTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
+                .setConnectTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
+                .setReadTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                 .build();
     }
 
