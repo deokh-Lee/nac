@@ -24,4 +24,14 @@ public class LlmSummaryController {
     ) {
         return ResponseEntity.ok(llmSummaryService.summarizeBatch(transferYear, limit, retryFail));
     }
+
+    @PostMapping("/all")
+    public ResponseEntity<LlmSummaryAllBatchResult> summarizeAll(
+            @RequestParam(required = false, defaultValue = "2023") String transferYear,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer maxLoop,
+            @RequestParam(required = false, defaultValue = "false") Boolean retryFail
+    ) {
+        return ResponseEntity.ok(llmSummaryService.summarizeAll(transferYear, limit, maxLoop, retryFail));
+    }
 }
