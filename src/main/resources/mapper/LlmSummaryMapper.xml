@@ -67,7 +67,7 @@
     <update id="updateSummarySuccess">
         UPDATE EXTRACT_ELEC_DOC
         SET SUMMARY = #{summary},
-            SUMMARY_FLAG = 'Y',
+            SUMMARY_FLAG = #{flag},
             LLM_SUMMARY_STATUS = 'PASS',
             LLM_SUMMARY_ERR_MSG = NULL,
             SUMMARY_TIME = NOW(3),
