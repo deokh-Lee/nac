@@ -24,6 +24,7 @@ public class TextExtractionService {
 
     private static final int WRITE_LIMIT = -1;
     private static final String PDF_MEDIA_TYPE = "application/pdf";
+    private static final String HTML_MEDIA_TYPE = "text/html";
     private static final String HWP_MEDIA_TYPE = "application/x-hwp";
     private static final String HWP_TIKA_FALLBACK_MEDIA_TYPE = "application/x-hwp+tika-fallback";
     private static final String HWP_PARAGRAPH_ERROR_MESSAGE = "This is not paragraph.";
@@ -36,11 +37,14 @@ public class TextExtractionService {
     private final AutoDetectParser parser = new AutoDetectParser();
     private final HwpTextExtractionService hwpTextExtractionService;
     private final HwpxTextExtractionService hwpxTextExtractionService;
+    private final HtmlTextExtractionService htmlTextExtractionService;
 
     public TextExtractionService(HwpTextExtractionService hwpTextExtractionService,
-                                 HwpxTextExtractionService hwpxTextExtractionService) {
+                                 HwpxTextExtractionService hwpxTextExtractionService,
+                                 HtmlTextExtractionService htmlTextExtractionService) {
         this.hwpTextExtractionService = hwpTextExtractionService;
         this.hwpxTextExtractionService = hwpxTextExtractionService;
+        this.htmlTextExtractionService = htmlTextExtractionService;
     }
 
     public TextExtractionResult extract(Path path) {
@@ -60,6 +64,9 @@ public class TextExtractionService {
             if ("hwpx".equals(extension)) {
                 return extractHwpxAsSingleText(path, imageContext);
             }
+            if (isHtml(extension, detectedType)) {
+                return extractHtmlAsBodyText(path);
+            }
             if (PDF_MEDIA_TYPE.equalsIgnoreCase(detectedType) || "pdf".equals(extension)) {
                 return extractPdfAsSingleText(path, detectedType);
             }
@@ -73,6 +80,20 @@ public class TextExtractionService {
                     e
             );
         }
+    }
+
+    private boolean isHtml(String extension, String detectedType) {
+        return "html".equals(extension)
+                || "htm".equals(extension)
+                || HTML_MEDIA_TYPE.equalsIgnoreCase(detectedType)
+                || "application/xhtml+xml".equalsIgnoreCase(detectedType);
+    }
+
+    private TextExtractionResult extractHtmlAsBodyText(Path path) throws Exception {
+        TextExtractionResult result = htmlTextExtractionService.extract(path);
+        String contents = normalizeForSingleDocument(result.contents());
+        boolean hasContents = contents != null && !contents.isBlank();
+        return new TextExtractionResult(contents, result.fileType(), hasContents, result.imgDatas());
     }
 
     private TextExtractionResult extractHwpAsSingleText(Path path, DocumentImageContext imageContext) throws Exception {
