@@ -28,40 +28,55 @@
             A.BND_TTL,
             A.JEMOK,
             A.RC_CODE,
-            A.RC_RFILE_NO,
-            A.RC_RITEM_NO,
-            B.ORG_FILE_PATH,
-            B.ORG_FILE_NAME,
-            B.SAVE_FILE_NAME,
-            C.FILE_NAME,
-            C.CONTENTS,
-            C.INDEXING_CONTENTS,
-            C.ZIP_SEQ,
-            C.ZIP_ENTRY_FILE_NAME,
-            C.FILE_TYPE,
-            C.FILE_GUBUN
-        FROM CN_RITEM A
-        JOIN CN_ELEC_DOC B
-          ON A.RC_RFILE_NO = B.RC_RFILE_NO
-         AND A.RC_RITEM_NO = B.RC_RITEM_NO
-         AND B.TRANSFERYEAR = #{transferYear}
-        JOIN EXTRACT_ELEC_DOC C
-          ON B.RC_RFILE_NO = C.RC_RFILE_NO
-         AND B.RC_RITEM_NO = C.RC_RITEM_NO
-         AND B.SAVE_FILE_NAME = C.FILE_NAME
-         AND C.EXTRACT_STATUS = 'PASS'
-        WHERE C.INDEXING_CONTENTS IS NOT NULL
-          AND C.INDEXING_CONTENTS != ''
-          <choose>
-              <when test="retryFail">
-                  AND (C.LLM_SUMMARY_STATUS IS NULL OR C.LLM_SUMMARY_STATUS != 'PASS')
-              </when>
-              <otherwise>
-                  AND C.LLM_SUMMARY_STATUS IS NULL
-              </otherwise>
-          </choose>
-        ORDER BY A.RC_RFILE_NO, A.RC_RITEM_NO, C.FILE_NAME, C.ZIP_SEQ
-        LIMIT #{limit}
+            X.RC_RFILE_NO,
+            X.RC_RITEM_NO,
+            X.ORG_FILE_PATH,
+            X.ORG_FILE_NAME,
+            X.SAVE_FILE_NAME,
+            X.FILE_NAME,
+            NULL AS CONTENTS,
+            X.INDEXING_CONTENTS,
+            X.ZIP_SEQ,
+            X.ZIP_ENTRY_FILE_NAME,
+            X.FILE_TYPE,
+            X.FILE_GUBUN
+        FROM (
+            SELECT
+                B.RC_RFILE_NO,
+                B.RC_RITEM_NO,
+                B.ORG_FILE_PATH,
+                B.ORG_FILE_NAME,
+                B.SAVE_FILE_NAME,
+                C.FILE_NAME,
+                C.INDEXING_CONTENTS,
+                C.ZIP_SEQ,
+                C.ZIP_ENTRY_FILE_NAME,
+                C.FILE_TYPE,
+                C.FILE_GUBUN
+            FROM EXTRACT_ELEC_DOC C
+            JOIN CN_ELEC_DOC B
+              ON B.RC_RFILE_NO = C.RC_RFILE_NO
+             AND B.RC_RITEM_NO = C.RC_RITEM_NO
+             AND B.SAVE_FILE_NAME = C.FILE_NAME
+             AND B.TRANSFERYEAR = #{transferYear}
+            WHERE C.EXTRACT_STATUS = 'PASS'
+              AND C.INDEXING_CONTENTS IS NOT NULL
+              AND C.INDEXING_CONTENTS != ''
+              <choose>
+                  <when test="retryFail">
+                      AND (C.LLM_SUMMARY_STATUS IS NULL OR C.LLM_SUMMARY_STATUS != 'PASS')
+                  </when>
+                  <otherwise>
+                      AND C.LLM_SUMMARY_STATUS IS NULL
+                  </otherwise>
+              </choose>
+            ORDER BY C.RC_RFILE_NO, C.RC_RITEM_NO, C.FILE_NAME, C.ZIP_SEQ
+            LIMIT #{limit}
+        ) X
+        JOIN CN_RITEM A
+          ON A.RC_RFILE_NO = X.RC_RFILE_NO
+         AND A.RC_RITEM_NO = X.RC_RITEM_NO
+        ORDER BY X.RC_RFILE_NO, X.RC_RITEM_NO, X.FILE_NAME, X.ZIP_SEQ
     </select>
 
     <update id="updateSummarySuccess">
