@@ -54,20 +54,20 @@ public class LlmSummaryService {
             return new LlmSummaryBatchResult(targetYear, requestCount, 0, workerCount, perWorkerSize, 0, 0);
         }
 
+        List<List<LlmSummaryTarget>> workerBuckets = distributeRoundRobin(targets, workerCount);
         ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
         List<Future<WorkerResult>> futures = new ArrayList<>();
 
         try {
             int submittedCount = 0;
             for (int i = 0; i < workerCount; i++) {
-                int fromIndex = i * perWorkerSize;
-                if (fromIndex >= targets.size()) {
-                    break;
+                List<LlmSummaryTarget> workerTargets = workerBuckets.get(i);
+                if (workerTargets.isEmpty()) {
+                    continue;
                 }
-                int toIndex = Math.min(fromIndex + perWorkerSize, targets.size());
                 String endpoint = properties.getEndpoints().get(i);
-                List<LlmSummaryTarget> workerTargets = targets.subList(fromIndex, toIndex);
                 submittedCount += workerTargets.size();
+                log.info("LLM worker assigned | workerNo={} | endpoint={} | size={}", i + 1, endpoint, workerTargets.size());
                 futures.add(executorService.submit(createWorkerTask(i + 1, endpoint, workerTargets)));
             }
 
@@ -88,6 +88,17 @@ public class LlmSummaryService {
         } finally {
             executorService.shutdown();
         }
+    }
+
+    private List<List<LlmSummaryTarget>> distributeRoundRobin(List<LlmSummaryTarget> targets, int workerCount) {
+        List<List<LlmSummaryTarget>> buckets = new ArrayList<>();
+        for (int i = 0; i < workerCount; i++) {
+            buckets.add(new ArrayList<>());
+        }
+        for (int i = 0; i < targets.size(); i++) {
+            buckets.get(i % workerCount).add(targets.get(i));
+        }
+        return buckets;
     }
 
     public LlmSummaryAllBatchResult summarizeAll(String transferYear, Integer limit, Integer maxLoop, Boolean retryFail) {
