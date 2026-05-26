@@ -38,7 +38,19 @@ public class ExtractElecDoc {
     public String getImgDatas() { return imgDatas; }
     public void setImgDatas(String imgDatas) { this.imgDatas = imgDatas; }
     public String getFileType() { return fileType; }
-    public void setFileType(String fileType) { this.fileType = fileType; }
+
+    /**
+     * EXTRACT_ELEC_DOC.FILE_TYPE에는 파일 확장자(HWP/PDF/ZIP)가 아니라
+     * FILE_NAME 규칙의 문서 구분 값을 저장합니다.
+     *
+     * 예) 202311165978_000000000001_N01.hwp -> N, 시행문
+     * 예) 202311167633_000000000004_S01.hwp -> S, 붙임문서
+     */
+    public void setFileType(String fileType) {
+        String documentType = FileTypeUtils.documentTypeOf(this.fileName);
+        this.fileType = "UNKNOWN".equals(documentType) ? fileType : documentType;
+    }
+
     public String getFileGubun() { return fileGubun; }
     public void setFileGubun(String fileGubun) { this.fileGubun = fileGubun; }
     public String getIndexingContents() { return indexingContents; }
