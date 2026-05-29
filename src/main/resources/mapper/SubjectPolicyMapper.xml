@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.saltlux.nac.subject.SubjectPolicyMapper">
+
+    <resultMap id="SubjectPolicyCandidateResultMap" type="com.saltlux.nac.subject.SubjectPolicyCandidate">
+        <result property="itemCd" column="ITEM_CD"/>
+        <result property="subClsNm" column="SUB_CLS_NM"/>
+        <result property="topicNm" column="TOPIC_NM"/>
+        <result property="prevGovNm" column="PREV_GOV_NM"/>
+        <result property="ternStart" column="TERN_START"/>
+        <result property="ternEnd" column="TERN_END"/>
+        <result property="description" column="DESCRIPTION"/>
+    </resultMap>
+
+    <select id="findSubjectCandidates" resultMap="SubjectPolicyCandidateResultMap">
+        SELECT
+            ITEM_CD,
+            SUB_CLS_NM,
+            TOPIC_NM,
+            PREV_GOV_NM,
+            TERN_START,
+            TERN_END,
+            DESCRIPTION
+        FROM TB_SUBJECT_ITEM_CODE
+        WHERE CLS_CD = #{clsCd}
+          <choose>
+              <when test="productionDate != null and productionDate != ''">
+                  AND TERN_START IS NOT NULL
+                  AND TERN_END IS NOT NULL
+                  AND SUBSTRING(REPLACE(REPLACE(REPLACE(REPLACE(TERN_START, '-', ''), '.', ''), '/', ''), ' ', ''), 1, 8)
+                      <![CDATA[<=]]>
+                      SUBSTRING(REPLACE(REPLACE(REPLACE(REPLACE(#{productionDate}, '-', ''), '.', ''), '/', ''), ' ', ''), 1, 8)
+                  AND SUBSTRING(REPLACE(REPLACE(REPLACE(REPLACE(TERN_END, '-', ''), '.', ''), '/', ''), ' ', ''), 1, 8)
+                      <![CDATA[>=]]>
+                      SUBSTRING(REPLACE(REPLACE(REPLACE(REPLACE(#{productionDate}, '-', ''), '.', ''), '/', ''), ' ', ''), 1, 8)
+              </when>
+              <otherwise>
+                  AND START_YEAR IS NOT NULL
+                  AND END_YEAR IS NOT NULL
+                  AND #{productionYear} IS NOT NULL
+                  AND #{productionYear} != ''
+                  AND START_YEAR <![CDATA[<=]]> #{productionYear}
+                  AND END_YEAR <![CDATA[>=]]> #{productionYear}
+              </otherwise>
+          </choose>
+        ORDER BY PREV_GOV_CD, SUB_CLS_CD, TOPIC_CD, ITEM_CD
+    </select>
+
+</mapper>

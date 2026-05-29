@@ -9,6 +9,9 @@
         <result property="bndTtl" column="BND_TTL"/>
         <result property="jemok" column="JEMOK"/>
         <result property="rcCode" column="RC_CODE"/>
+        <result property="allOrgNm" column="ALL_ORG_NM"/>
+        <result property="prodRegDate" column="PRODREGDATE"/>
+        <result property="prodYear" column="PRODYEAR"/>
         <result property="rcRfileNo" column="RC_RFILE_NO"/>
         <result property="rcRitemNo" column="RC_RITEM_NO"/>
         <result property="orgFilePath" column="ORG_FILE_PATH"/>
@@ -28,6 +31,9 @@
             A.BND_TTL,
             A.JEMOK,
             A.RC_CODE,
+            A.ALL_ORG_NM,
+            A.PRODREGDATE,
+            B.PRODYEAR,
             Z.RC_RFILE_NO,
             Z.RC_RITEM_NO,
             B.ORG_FILE_PATH,

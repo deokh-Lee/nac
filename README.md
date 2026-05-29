@@ -100,6 +100,84 @@ curl -X POST "http://localhost:8080/api/electronic-documents/extract?transferYea
 }
 ```
 
+## LLM 프롬프트 파일
+
+LLM 프롬프트는 `src/main/java/com/saltlux/nac/prompt/*.txt` 파일로 관리합니다. 파일명에서 `.txt`를 제외한 값이 `promptName`입니다.
+
+```text
+src/main/java/com/saltlux/nac/prompt/summary.txt        -> promptName=summary
+src/main/java/com/saltlux/nac/prompt/policy_extract.txt -> promptName=policy_extract
+```
+
+기본 요약 프롬프트는 `application.yml`의 `document.extract.llm.default-prompt-name`으로 지정합니다.
+
+```yaml
+document:
+  extract:
+    llm:
+      default-prompt-name: summary
+```
+
+요약 API에서 다른 프롬프트를 선택하려면 `promptName`을 전달합니다. 단, 현재 요약 API는 LLM 응답을 `flag`, `summary` JSON으로 파싱하므로, `policy_extract`처럼 응답 형식이 다른 프롬프트는 별도 서비스에서 사용하는 구조로 확장해야 합니다.
+
+```bash
+curl -X POST "http://localhost:8081/api/electronic-documents/llm-summary?transferYear=2023&limit=100&promptName=summary"
+```
+
+## 정책명 추출 API
+
+`policy_extract.txt` 프롬프트와 `TB_SUBJECT_ITEM_CODE`의 정책 후보 목록을 사용해 `CN_RITEM` 기록물 메타데이터에 정책명을 매핑합니다. 한 번에 기본 100건을 조회하고, `document.extract.llm.endpoints`에 설정된 LLM endpoint로 round-robin 분산 호출합니다.
+
+```bash
+curl -X POST "http://localhost:8081/api/electronic-documents/policy-extract?transferYear=2023&limit=100&offset=0"
+```
+
+전체 실행은 미처리 건(`LLM_POLICY_STATUS IS NULL`)을 100건씩 반복 처리합니다.
+
+```bash
+curl -X POST "http://localhost:8081/api/electronic-documents/policy-extract/all?transferYear=2023&limit=100"
+```
+
+실패 건까지 다시 처리하려면 `retryFail=true`를 전달합니다.
+
+```bash
+curl -X POST "http://localhost:8081/api/electronic-documents/policy-extract/all?transferYear=2023&limit=100&retryFail=true"
+```
+
+정상 응답은 `CN_RITEM`을 `RC_CODE`, `RC_RFILE_NO`, `RC_RITEM_NO` 기준으로 찾아 `POLICY_CD`, `POLICY_NM`, `LLM_POLICY_STATUS` 컬럼에 저장합니다. 실패 시 `LLM_POLICY_STATUS = 'FAIL'`, `LLM_POLICY_ERR_MSG`에 오류 메시지를 저장합니다.
+
+## 이벤트 추출 API
+
+`event_extract.txt` 프롬프트와 `TB_SUBJECT_ITEM_CODE`의 `CLS_CD = 'EVENT'` 후보 목록을 사용해 이벤트를 매핑합니다. 정책 추출과 동일하게 `transferYear`, `prodYear`, `limit`, `offset`, `retryFail` 파라미터를 사용할 수 있습니다.
+
+```bash
+curl -X POST "http://localhost:8081/api/electronic-documents/event-extract?transferYear=2023&prodYear=2012&limit=100&offset=0"
+```
+
+전체 실행:
+
+```bash
+curl -X POST "http://localhost:8081/api/electronic-documents/event-extract/all?transferYear=2023&prodYear=2012&limit=100"
+```
+
+정상 응답은 `CN_RITEM`을 `RC_CODE`, `RC_RFILE_NO`, `RC_RITEM_NO` 기준으로 찾아 `EX_EVENT_CD`, `EX_EVENT_NM`, `LLM_EVENT_STATUS` 컬럼에 저장합니다. 실패 시 `LLM_EVENT_STATUS = 'FAIL'`, `LLM_EVENT_ERR_MSG`에 오류 메시지를 저장합니다.
+
+## 행사 추출 API
+
+`activity_extract.txt` 프롬프트와 `TB_SUBJECT_ITEM_CODE`의 `CLS_CD = 'ACTIVITY'` 후보 목록을 사용해 행사를 매핑합니다.
+
+```bash
+curl -X POST "http://localhost:8081/api/electronic-documents/activity-extract?transferYear=2023&prodYear=2012&limit=100&offset=0"
+```
+
+전체 실행:
+
+```bash
+curl -X POST "http://localhost:8081/api/electronic-documents/activity-extract/all?transferYear=2023&prodYear=2012&limit=100"
+```
+
+정상 응답은 `CN_RITEM`을 `RC_CODE`, `RC_RFILE_NO`, `RC_RITEM_NO` 기준으로 찾아 `ACTIVITY_CD`, `ACTIVITY_NM`, `LLM_ACTIVITY_STATUS` 컬럼에 저장합니다. 실패 시 `LLM_ACTIVITY_STATUS = 'FAIL'`, `LLM_ACTIVITY_ERR_MSG`에 오류 메시지를 저장합니다.
+
 ## 주의사항
 
 - `CN_ELEC_DOC.SAVE_FILE_NAME`이 있으면 우선 사용하고, 없으면 `ORG_FILE_NAME`을 사용합니다.

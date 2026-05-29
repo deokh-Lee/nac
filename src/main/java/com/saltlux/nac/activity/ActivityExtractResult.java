@@ -1,12 +1,13 @@
-package com.saltlux.nac.elecdoc;
+package com.saltlux.nac.activity;
 
-public record LlmSummaryBatchResult(
+public record ActivityExtractResult(
         String transferYear,
-        String promptName,
+        String prodYear,
         int requestedCount,
+        int offset,
+        boolean retryFail,
         int targetCount,
         int workerCount,
-        int perWorkerSize,
         int successCount,
         int failCount
 ) {

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.saltlux.nac.event.EventExtractMapper">
+
+    <resultMap id="EventExtractTargetResultMap" type="com.saltlux.nac.policy.PolicyExtractTarget">
+        <result property="rcCode" column="RC_CODE"/>
+        <result property="rcRfileNo" column="RC_RFILE_NO"/>
+        <result property="rcRitemNo" column="RC_RITEM_NO"/>
+        <result property="bndTtl" column="BND_TTL"/>
+        <result property="jemok" column="JEMOK"/>
+        <result property="allOrgNm" column="ALL_ORG_NM"/>
+        <result property="prodRegDate" column="PRODREGDATE"/>
+        <result property="prodYear" column="PRODYEAR"/>
+    </resultMap>
+
+    <select id="findEventExtractTargets" resultMap="EventExtractTargetResultMap">
+        SELECT
+            A.RC_CODE,
+            A.RC_RFILE_NO,
+            A.RC_RITEM_NO,
+            A.BND_TTL,
+            A.JEMOK,
+            A.ALL_ORG_NM,
+            A.PRODREGDATE,
+            B.PRODYEAR
+        FROM CN_RITEM A
+        JOIN (
+            SELECT
+                RC_RFILE_NO,
+                RC_RITEM_NO,
+                MNGNO,
+                KIKWANCODE,
+                PRODYEAR
+            FROM CN_ELEC_DOC
+            WHERE TRANSFERYEAR = #{transferYear}
+              <if test="prodYear != null and prodYear != ''">
+                  AND PRODYEAR = #{prodYear}
+              </if>
+            GROUP BY RC_RFILE_NO, RC_RITEM_NO, MNGNO, KIKWANCODE, PRODYEAR
+        ) B
+          ON A.RC_RFILE_NO = B.RC_RFILE_NO
+         AND A.RC_RITEM_NO = B.RC_RITEM_NO
+        <choose>
+            <when test="retryFail">
+                WHERE (A.LLM_EVENT_STATUS IS NULL OR A.LLM_EVENT_STATUS != 'PASS')
+            </when>
+            <otherwise>
+                WHERE A.LLM_EVENT_STATUS IS NULL
+            </otherwise>
+        </choose>
+        ORDER BY A.RC_RFILE_NO, A.RC_RITEM_NO
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <update id="updateEventExtractSuccess">
+        UPDATE CN_RITEM
+        SET EX_EVENT_CD = #{result.itemCd},
+            EX_EVENT_NM = #{result.eventName},
+            LLM_EVENT_STATUS = 'PASS',
+            LLM_EVENT_ERR_MSG = NULL
+        WHERE RC_CODE = #{target.rcCode}
+          AND RC_RFILE_NO = #{target.rcRfileNo}
+          AND RC_RITEM_NO = #{target.rcRitemNo}
+    </update>
+
+    <update id="updateEventExtractFail">
+        UPDATE CN_RITEM
+        SET LLM_EVENT_STATUS = 'FAIL',
+            LLM_EVENT_ERR_MSG = #{errorMessage}
+        WHERE RC_CODE = #{target.rcCode}
+          AND RC_RFILE_NO = #{target.rcRfileNo}
+          AND RC_RITEM_NO = #{target.rcRitemNo}
+    </update>
+
+</mapper>

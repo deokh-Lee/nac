@@ -1,8 +1,8 @@
-package com.saltlux.nac.elecdoc;
+package com.saltlux.nac.policy;
 
-public record LlmSummaryAllBatchResult(
+public record PolicyExtractAllResult(
         String transferYear,
-        String promptName,
+        String prodYear,
         int batchSize,
         int maxLoop,
         boolean retryFail,

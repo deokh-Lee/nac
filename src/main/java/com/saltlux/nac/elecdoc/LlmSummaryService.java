@@ -2,8 +2,14 @@ package com.saltlux.nac.elecdoc;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.saltlux.nac.prompt.PromptTemplate;
+import com.saltlux.nac.prompt.PromptTemplateRenderer;
+import com.saltlux.nac.prompt.PromptTemplateRepository;
+import com.saltlux.nac.subject.SubjectPolicyCandidate;
+import com.saltlux.nac.subject.SubjectPolicyMapper;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -28,14 +34,23 @@ public class LlmSummaryService {
 
     private final LlmSummaryMapper llmSummaryMapper;
     private final DocumentLlmProperties properties;
+    private final PromptTemplateRepository promptTemplateRepository;
+    private final PromptTemplateRenderer promptTemplateRenderer;
+    private final SubjectPolicyMapper subjectPolicyMapper;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public LlmSummaryService(LlmSummaryMapper llmSummaryMapper,
                              DocumentLlmProperties properties,
+                             PromptTemplateRepository promptTemplateRepository,
+                             PromptTemplateRenderer promptTemplateRenderer,
+                             SubjectPolicyMapper subjectPolicyMapper,
                              RestTemplateBuilder restTemplateBuilder) {
         this.llmSummaryMapper = llmSummaryMapper;
         this.properties = properties;
+        this.promptTemplateRepository = promptTemplateRepository;
+        this.promptTemplateRenderer = promptTemplateRenderer;
+        this.subjectPolicyMapper = subjectPolicyMapper;
         this.restTemplate = restTemplateBuilder
                 .setConnectTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                 .setReadTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
@@ -43,6 +58,11 @@ public class LlmSummaryService {
     }
 
     public LlmSummaryBatchResult summarizeBatch(String transferYear, Integer limit, Boolean retryFail) {
+        return summarizeBatch(transferYear, limit, retryFail, null);
+    }
+
+    public LlmSummaryBatchResult summarizeBatch(String transferYear, Integer limit, Boolean retryFail, String promptName) {
+        PromptTemplate promptTemplate = promptTemplateRepository.getOrDefault(promptName, properties.getDefaultPromptName());
         String targetYear = StringUtils.hasText(transferYear) ? transferYear : "2023";
         int workerCount = Math.max(1, properties.getEndpoints().size());
         int perWorkerSize = Math.max(1, properties.getPerWorkerSize());
@@ -51,7 +71,7 @@ public class LlmSummaryService {
 
         List<LlmSummaryTarget> targets = llmSummaryMapper.findSummaryTargets(targetYear, requestCount, shouldRetryFail);
         if (targets.isEmpty()) {
-            return new LlmSummaryBatchResult(targetYear, requestCount, 0, workerCount, perWorkerSize, 0, 0);
+            return new LlmSummaryBatchResult(targetYear, promptTemplate.name(), requestCount, 0, workerCount, perWorkerSize, 0, 0);
         }
 
         List<List<LlmSummaryTarget>> workerBuckets = distributeRoundRobin(targets, workerCount);
@@ -67,8 +87,9 @@ public class LlmSummaryService {
                 }
                 String endpoint = properties.getEndpoints().get(i);
                 submittedCount += workerTargets.size();
-                log.info("LLM worker assigned | workerNo={} | endpoint={} | size={}", i + 1, endpoint, workerTargets.size());
-                futures.add(executorService.submit(createWorkerTask(i + 1, endpoint, workerTargets)));
+                log.info("LLM worker assigned | workerNo={} | prompt={} | endpoint={} | size={}",
+                        i + 1, promptTemplate.name(), endpoint, workerTargets.size());
+                futures.add(executorService.submit(createWorkerTask(i + 1, endpoint, promptTemplate, workerTargets)));
             }
 
             int success = 0;
@@ -84,7 +105,7 @@ public class LlmSummaryService {
                 }
             }
 
-            return new LlmSummaryBatchResult(targetYear, requestCount, submittedCount, workerCount, perWorkerSize, success, fail);
+            return new LlmSummaryBatchResult(targetYear, promptTemplate.name(), requestCount, submittedCount, workerCount, perWorkerSize, success, fail);
         } finally {
             executorService.shutdown();
         }
@@ -102,6 +123,11 @@ public class LlmSummaryService {
     }
 
     public LlmSummaryAllBatchResult summarizeAll(String transferYear, Integer limit, Integer maxLoop, Boolean retryFail) {
+        return summarizeAll(transferYear, limit, maxLoop, retryFail, null);
+    }
+
+    public LlmSummaryAllBatchResult summarizeAll(String transferYear, Integer limit, Integer maxLoop, Boolean retryFail, String promptName) {
+        PromptTemplate promptTemplate = promptTemplateRepository.getOrDefault(promptName, properties.getDefaultPromptName());
         String targetYear = StringUtils.hasText(transferYear) ? transferYear : "2023";
         int workerCount = Math.max(1, properties.getEndpoints().size());
         int perWorkerSize = Math.max(1, properties.getPerWorkerSize());
@@ -117,15 +143,16 @@ public class LlmSummaryService {
 
         while (loopCount < loopLimit) {
             loopCount++;
-            LlmSummaryBatchResult result = summarizeBatch(targetYear, batchSize, shouldRetryFail);
+            LlmSummaryBatchResult result = summarizeBatch(targetYear, batchSize, shouldRetryFail, promptTemplate.name());
 
             totalTargetCount += result.targetCount();
             totalSuccessCount += result.successCount();
             totalFailCount += result.failCount();
 
-            log.info("llm-summary/all loop#{} | year={} | batchSize={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
+            log.info("llm-summary/all loop#{} | year={} | prompt={} | batchSize={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
                     loopCount,
                     targetYear,
+                    promptTemplate.name(),
                     batchSize,
                     result.targetCount(),
                     result.successCount(),
@@ -142,6 +169,7 @@ public class LlmSummaryService {
 
         return new LlmSummaryAllBatchResult(
                 targetYear,
+                promptTemplate.name(),
                 batchSize,
                 loopLimit,
                 shouldRetryFail,
@@ -153,45 +181,51 @@ public class LlmSummaryService {
         );
     }
 
-    private Callable<WorkerResult> createWorkerTask(int workerNo, String endpoint, List<LlmSummaryTarget> targets) {
+    private Callable<WorkerResult> createWorkerTask(int workerNo, String endpoint, PromptTemplate promptTemplate, List<LlmSummaryTarget> targets) {
         return () -> {
             int success = 0;
             int fail = 0;
-            log.info("LLM worker start | workerNo={} | endpoint={} | size={}", workerNo, endpoint, targets.size());
+            log.info("LLM worker start | workerNo={} | prompt={} | endpoint={} | size={}",
+                    workerNo, promptTemplate.name(), endpoint, targets.size());
 
             for (LlmSummaryTarget target : targets) {
                 try {
-                    LlmSummaryResponse llmResult = callLlm(endpoint, target);
+                    LlmSummaryResponse llmResult = callLlm(endpoint, promptTemplate, target);
                     llmSummaryMapper.updateSummarySuccess(
                             target,
                             llmResult.flag(),
                             cut(llmResult.summary(), properties.getMaxSummaryLength())
                     );
                     success++;
-                    log.info("LLM summary PASS | workerNo={} | flag={} | fileName={} | zipSeq={} | rcRfileNo={} | rcRitemNo={}",
-                            workerNo, llmResult.flag(), target.getFileName(), target.getZipSeq(), target.getRcRfileNo(), target.getRcRitemNo());
+                    log.info("LLM summary PASS | workerNo={} | prompt={} | flag={} | fileName={} | zipSeq={} | rcRfileNo={} | rcRitemNo={}",
+                            workerNo, promptTemplate.name(), llmResult.flag(), target.getFileName(), target.getZipSeq(), target.getRcRfileNo(), target.getRcRitemNo());
                 } catch (Exception e) {
                     llmSummaryMapper.updateSummaryFail(target, cut(safeMessage(e), 2000));
                     fail++;
-                    log.warn("LLM summary FAIL | workerNo={} | fileName={} | zipSeq={} | rcRfileNo={} | rcRitemNo={} | error={}",
-                            workerNo, target.getFileName(), target.getZipSeq(), target.getRcRfileNo(), target.getRcRitemNo(), safeMessage(e));
+                    log.warn("LLM summary FAIL | workerNo={} | prompt={} | fileName={} | zipSeq={} | rcRfileNo={} | rcRitemNo={} | error={}",
+                            workerNo, promptTemplate.name(), target.getFileName(), target.getZipSeq(), target.getRcRfileNo(), target.getRcRitemNo(), safeMessage(e));
                 }
             }
 
-            log.info("LLM worker end | workerNo={} | success={} | fail={}", workerNo, success, fail);
+            log.info("LLM worker end | workerNo={} | prompt={} | success={} | fail={}",
+                    workerNo, promptTemplate.name(), success, fail);
             return new WorkerResult(success, fail);
         };
     }
 
-    private LlmSummaryResponse callLlm(String endpoint, LlmSummaryTarget target) throws Exception {
+    private LlmSummaryResponse callLlm(String endpoint, PromptTemplate promptTemplate, LlmSummaryTarget target) throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(List.of(MediaType.APPLICATION_JSON));
         headers.setContentType(MediaType.APPLICATION_JSON);
+        String systemPrompt = promptTemplateRenderer.render(
+                promptTemplate.content(),
+                buildPromptVariables(target, promptTemplate.content())
+        );
 
         Map<String, Object> payload = Map.of(
                 "model", properties.getModel(),
                 "messages", List.of(
-                        Map.of("role", "system", "content", properties.getSystemPrompt()),
+                        Map.of("role", "system", "content", systemPrompt),
                         Map.of("role", "user", "content", buildUserPrompt(target))
                 ),
                 "temperature", 0.2,
@@ -217,6 +251,90 @@ public class LlmSummaryService {
         sb.append("  \"summary\": \"flag가 Y인 경우 300자 이내 요약, flag가 N인 경우 빈 문자열\"\n");
         sb.append("}\n");
         return sb.toString();
+    }
+
+    private Map<String, Object> buildPromptVariables(LlmSummaryTarget target, String template) {
+        Map<String, Object> variables = new LinkedHashMap<>();
+        variables.put("BND_TTL", nullToEmpty(target.getBndTtl()));
+        variables.put("JEMOK", nullToEmpty(target.getJemok()));
+        variables.put("RC_CODE", nullToEmpty(target.getRcCode()));
+        variables.put("ALL_ORG_NM", nullToEmpty(target.getAllOrgNm()));
+        variables.put("PRODREGDATE", nullToEmpty(target.getProdRegDate()));
+        variables.put("PRODYEAR", nullToEmpty(target.getProdYear()));
+        variables.put("RC_RFILE_NO", nullToEmpty(target.getRcRfileNo()));
+        variables.put("RC_RITEM_NO", nullToEmpty(target.getRcRitemNo()));
+        variables.put("ORG_FILE_PATH", nullToEmpty(target.getOrgFilePath()));
+        variables.put("ORG_FILE_NAME", nullToEmpty(target.getOrgFileName()));
+        variables.put("SAVE_FILE_NAME", nullToEmpty(target.getSaveFileName()));
+        variables.put("FILE_NAME", nullToEmpty(target.getFileName()));
+        variables.put("CONTENTS", cut(nullToEmpty(target.getContents()), properties.getMaxContentLength()));
+        variables.put("INDEXING_CONTENTS", cut(nullToEmpty(target.getIndexingContents()), properties.getMaxContentLength()));
+        variables.put("ZIP_SEQ", target.getZipSeq() == null ? "" : target.getZipSeq());
+        variables.put("ZIP_ENTRY_FILE_NAME", nullToEmpty(target.getZipEntryFileName()));
+        variables.put("FILE_TYPE", nullToEmpty(target.getFileType()));
+        variables.put("FILE_GUBUN", nullToEmpty(target.getFileGubun()));
+        variables.put("maxContentLength", properties.getMaxContentLength());
+        variables.put("maxSummaryLength", properties.getMaxSummaryLength());
+        if (containsPlaceholder(template, "candidate_policy_list_json")) {
+            variables.put("candidate_policy_list_json", buildCandidatePolicyListJson(target));
+        }
+        return variables;
+    }
+
+    private boolean containsPlaceholder(String template, String name) {
+        if (!StringUtils.hasText(template)) {
+            return false;
+        }
+        return template.contains("${" + name + "}")
+                || template.contains("{{" + name + "}}")
+                || template.contains("{" + name + "}");
+    }
+
+    private String buildCandidatePolicyListJson(LlmSummaryTarget target) {
+        String productionDate = StringUtils.hasText(target.getProdRegDate())
+                ? normalizeProductionDate(target.getProdRegDate())
+                : "";
+        String productionYear = normalizeProductionYear(target.getProdYear());
+        List<SubjectPolicyCandidate> candidates = subjectPolicyMapper.findSubjectCandidates("POLICY", productionDate, productionYear);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (SubjectPolicyCandidate candidate : candidates) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("ITEM_CD", candidate.getItemCd());
+            row.put("SUB_CLS_NM", candidate.getSubClsNm());
+            row.put("TOPIC_NM", candidate.getTopicNm());
+            row.put("PREV_GOV_NM", candidate.getPrevGovNm());
+            row.put("TERN_START", candidate.getTernStart());
+            row.put("TERN_END", candidate.getTernEnd());
+            row.put("DESCRIPTION", candidate.getDescription());
+            rows.add(row);
+        }
+        try {
+            return objectMapper.writeValueAsString(rows);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to serialize policy candidates", e);
+        }
+    }
+
+    private String normalizeProductionDate(String productionDate) {
+        if (!StringUtils.hasText(productionDate)) {
+            return "";
+        }
+        String digits = productionDate.replaceAll("[^0-9]", "");
+        if (digits.length() >= 8) {
+            return digits.substring(0, 8);
+        }
+        if (digits.length() == 4) {
+            return digits + "0101";
+        }
+        return productionDate;
+    }
+
+    private String normalizeProductionYear(String productionYear) {
+        if (!StringUtils.hasText(productionYear)) {
+            return "";
+        }
+        String digits = productionYear.replaceAll("[^0-9]", "");
+        return digits.length() >= 4 ? digits.substring(0, 4) : productionYear;
     }
 
     @SuppressWarnings("unchecked")

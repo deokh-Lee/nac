@@ -4,6 +4,9 @@ public class LlmSummaryTarget {
     private String bndTtl;
     private String jemok;
     private String rcCode;
+    private String allOrgNm;
+    private String prodRegDate;
+    private String prodYear;
     private String rcRfileNo;
     private String rcRitemNo;
     private String orgFilePath;
@@ -23,6 +26,12 @@ public class LlmSummaryTarget {
     public void setJemok(String jemok) { this.jemok = jemok; }
     public String getRcCode() { return rcCode; }
     public void setRcCode(String rcCode) { this.rcCode = rcCode; }
+    public String getAllOrgNm() { return allOrgNm; }
+    public void setAllOrgNm(String allOrgNm) { this.allOrgNm = allOrgNm; }
+    public String getProdRegDate() { return prodRegDate; }
+    public void setProdRegDate(String prodRegDate) { this.prodRegDate = prodRegDate; }
+    public String getProdYear() { return prodYear; }
+    public void setProdYear(String prodYear) { this.prodYear = prodYear; }
     public String getRcRfileNo() { return rcRfileNo; }
     public void setRcRfileNo(String rcRfileNo) { this.rcRfileNo = rcRfileNo; }
     public String getRcRitemNo() { return rcRitemNo; }

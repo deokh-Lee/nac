@@ -11,7 +11,7 @@ spring:
     username: root
     password: root
     hikari:
-      maximum-pool-size: 10
+      maximum-pool-size: 100
       minimum-idle: 4
 
 mybatis:
@@ -26,43 +26,23 @@ document:
     image-base-path: /data/file-data/elec_doc/images
     default-transfer-year: 2023
     batch-size: 100
-    thread-count: 4
-    chunk-size: 25
+    thread-count: 3
+    chunk-size: 3
     file-timeout-seconds: 60
     llm:
       endpoints:
         - http://192.168.250.25:13006/v1/chat/completions
-        - http://192.168.250.25:14006/v1/chat/completions
         - http://192.168.250.25:15006/v1/chat/completions
         - http://192.168.250.25:16006/v1/chat/completions
+      policy-endpoint: http://192.168.250.25:13006/v1/chat/completions
+      event-endpoint: http://192.168.250.25:15006/v1/chat/completions
+      activity-endpoint: http://192.168.250.25:16006/v1/chat/completions
       model: local-model
       per-worker-size: 10
       timeout-seconds: 120
       max-content-length: 12000
       max-summary-length: 500
-      system-prompt: |
-        당신은 문서 분석 전문가입니다.
-        아래의 [문서]는 국가기록원에서 관리하고 있는 공공기록물입니다.
-        [문서]는 내용(INDEXING_CONTENTS), 철제목(BND_TTL), 건제목(JEMOK)로 구성되어 있습니다.
-        먼저 [문서]를 전부 읽고 [판단규칙]에 따라 문서의 요약 가능 여부를 판단한 뒤, [요약 정보 생성규칙]을 준수하여 요약 정보를 생성해주세요.
-
-        [판단규칙]
-        1. 이미지, 테이블 데이터만 있는 문서로 요약할 텍스트가 충분하지 않은 경우: flag값 N
-        2. 텍스트가 충분하지만, 그 내용이 공공기록물로써 사용자에게 제공되었을 때 활용될 가능성이 없는 내용인 경우: flag값 N
-        예시: 공무원 합격자 명단, 참석자 명단, 서식, 시험 문제풀이 등
-        3. 공공기록물로써 사용자에게 제공되었을 때 활용될 가능성이 있는 경우: flag값 Y
-
-        [요약 정보 생성규칙]
-        1. flag값 'Y'인 경우에만 summary에 요약 정보를 작성합니다.
-        2. 요약 정보는 사용자가 문서를 열람하지 않고도 문서의 작성 목적과 주요 내용을 알 수 있어야 합니다.
-        3. 300 글자 이내로 '-습니다'로 작성합니다.
-        4. 문서에 없는 내용을 추론하여 작성하지 않습니다.
-
-        [답변 출력 예시]
-        {
-          "flag": "Y",
-          "summary": "여름철 산림재해 예방 및 대응을 위해 산림재해대책 상황관리계획을 수립하고, 상황실 설치 및 비상근무 체계를 마련하였습니다. 또한, 재해취약지에 대한 현장 상황관리를 강화하고, 피해 발생 시 신속한 복구와 유기적인 업무연계를 통해 국민의 생명과 재산 보호에 총력을 다하겠습니다."
-        }
+      default-prompt-name: summary
 
 logging:
   file:
