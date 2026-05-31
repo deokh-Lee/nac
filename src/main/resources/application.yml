@@ -45,6 +45,8 @@ document:
       default-prompt-name: summary
 
 logging:
+  pattern:
+    dateformat: yyyy-MM-dd'T'HH:mm:ss.SSSXXX,Asia/Seoul
   file:
     name: logs/nac.log
   logback:
@@ -56,6 +58,13 @@ logging:
   level:
     root: info
     com.saltlux.nac: info
-    com.saltlux.nac.elecdoc.ElecDocMapper: warn
-    org.mybatis: warn
-    org.apache.ibatis: warn
+    com.saltlux.nac.activity.ActivityExtractMapper: info
+    com.saltlux.nac.elecdoc.ElecDocMapper: info
+    com.saltlux.nac.elecdoc.LlmSummaryMapper: info
+    com.saltlux.nac.event.EventExtractMapper: info
+    com.saltlux.nac.policy.PolicyExtractMapper: info
+    com.saltlux.nac.record.RecordMapper: info
+    com.saltlux.nac.subject.SubjectExtractMapper: info
+    com.saltlux.nac.subject.SubjectPolicyMapper: info
+    org.mybatis: info
+    org.apache.ibatis: info

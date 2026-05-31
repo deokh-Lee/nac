@@ -6,6 +6,7 @@ import com.saltlux.nac.elecdoc.DocumentLlmProperties;
 import com.saltlux.nac.prompt.PromptTemplate;
 import com.saltlux.nac.prompt.PromptTemplateRenderer;
 import com.saltlux.nac.prompt.PromptTemplateRepository;
+import com.saltlux.nac.subject.SubjectExtractRunRegistry;
 import com.saltlux.nac.subject.SubjectPolicyCandidate;
 import com.saltlux.nac.subject.SubjectPolicyMapper;
 import java.time.Duration;
@@ -14,6 +15,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -39,20 +42,24 @@ public class PolicyExtractService {
     private final DocumentLlmProperties properties;
     private final PromptTemplateRepository promptTemplateRepository;
     private final PromptTemplateRenderer promptTemplateRenderer;
+    private final SubjectExtractRunRegistry runRegistry;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ConcurrentMap<CandidateCacheKey, String> candidateListJsonCache = new ConcurrentHashMap<>();
 
     public PolicyExtractService(PolicyExtractMapper policyExtractMapper,
                                 SubjectPolicyMapper subjectPolicyMapper,
                                 DocumentLlmProperties properties,
                                 PromptTemplateRepository promptTemplateRepository,
                                 PromptTemplateRenderer promptTemplateRenderer,
+                                SubjectExtractRunRegistry runRegistry,
                                 RestTemplateBuilder restTemplateBuilder) {
         this.policyExtractMapper = policyExtractMapper;
         this.subjectPolicyMapper = subjectPolicyMapper;
         this.properties = properties;
         this.promptTemplateRepository = promptTemplateRepository;
         this.promptTemplateRenderer = promptTemplateRenderer;
+        this.runRegistry = runRegistry;
         this.restTemplate = restTemplateBuilder
                 .setConnectTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                 .setReadTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
@@ -66,7 +73,7 @@ public class PolicyExtractService {
         int requestOffset = offset == null || offset < 0 ? 0 : offset;
         boolean shouldRetryFail = Boolean.TRUE.equals(retryFail);
         String endpoint = resolveEndpoint(properties.getPolicyEndpoint(), 0);
-        int workerCount = 1;
+        int workerCount = calculateWorkerCount(requestCount);
 
         List<PolicyExtractTarget> targets = policyExtractMapper.findPolicyExtractTargets(
                 targetYear,
@@ -80,35 +87,11 @@ public class PolicyExtractService {
         }
 
         PromptTemplate promptTemplate = promptTemplateRepository.get(PROMPT_NAME);
-        List<List<PolicyExtractTarget>> workerBuckets = distributeRoundRobin(targets, workerCount);
         ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
-        List<Future<WorkerResult>> futures = new ArrayList<>();
-
         try {
-            for (int i = 0; i < workerCount; i++) {
-                List<PolicyExtractTarget> workerTargets = workerBuckets.get(i);
-                if (workerTargets.isEmpty()) {
-                    continue;
-                }
-                log.info("Policy extract worker assigned | workerNo={} | endpoint={} | size={}",
-                        i + 1, endpoint, workerTargets.size());
-                futures.add(executorService.submit(createWorkerTask(i + 1, endpoint, promptTemplate, workerTargets)));
-            }
-
-            int success = 0;
-            int fail = 0;
-            for (Future<WorkerResult> future : futures) {
-                try {
-                    WorkerResult result = future.get();
-                    success += result.successCount();
-                    fail += result.failCount();
-                } catch (Exception e) {
-                    fail++;
-                    log.warn("Policy extract worker future failed. error={}", safeMessage(e));
-                }
-            }
-
-            return new PolicyExtractResult(targetYear, targetProdYear, requestCount, requestOffset, shouldRetryFail, targets.size(), workerCount, success, fail);
+            WorkerResult result = runWorkerBatch(executorService, workerCount, endpoint, promptTemplate, targets);
+            return new PolicyExtractResult(targetYear, targetProdYear, requestCount, requestOffset, shouldRetryFail,
+                    targets.size(), workerCount, result.successCount(), result.failCount());
         } finally {
             executorService.shutdown();
         }
@@ -120,50 +103,106 @@ public class PolicyExtractService {
         int batchSize = limit == null || limit <= 0 ? 100 : limit;
         int loopLimit = maxLoop == null || maxLoop <= 0 ? 10_000 : maxLoop;
         boolean shouldRetryFail = Boolean.TRUE.equals(retryFail);
+        SubjectExtractRunRegistry.RunKey runKey = runRegistry.acquire(
+                "policy-extract/all",
+                SubjectExtractRunRegistry.POLICY,
+                targetYear,
+                targetProdYear
+        );
         int loopCount = 0;
         int totalTargetCount = 0;
         int totalSuccessCount = 0;
         int totalFailCount = 0;
         boolean completed = false;
+        String endpoint = resolveEndpoint(properties.getPolicyEndpoint(), 0);
+        int workerCount = calculateWorkerCount(batchSize);
+        PromptTemplate promptTemplate = promptTemplateRepository.get(PROMPT_NAME);
+        ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
 
-        while (loopCount < loopLimit) {
-            loopCount++;
-            PolicyExtractResult result = extractBatch(targetYear, targetProdYear, batchSize, 0, shouldRetryFail);
-            totalTargetCount += result.targetCount();
-            totalSuccessCount += result.successCount();
-            totalFailCount += result.failCount();
+        try {
+            while (loopCount < loopLimit) {
+                loopCount++;
+                List<PolicyExtractTarget> targets = policyExtractMapper.findPolicyExtractTargets(
+                        targetYear,
+                        targetProdYear,
+                        batchSize,
+                        0,
+                        shouldRetryFail
+                );
+                WorkerResult result = targets.isEmpty()
+                        ? new WorkerResult(0, 0)
+                        : runWorkerBatch(executorService, workerCount, endpoint, promptTemplate, targets);
+                totalTargetCount += targets.size();
+                totalSuccessCount += result.successCount();
+                totalFailCount += result.failCount();
 
-            log.info("policy-extract/all loop#{} | year={} | prodYear={} | batchSize={} | retryFail={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
-                    loopCount,
+                log.info("policy-extract/all loop#{} | year={} | prodYear={} | batchSize={} | retryFail={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
+                        loopCount,
+                        targetYear,
+                        targetProdYear,
+                        batchSize,
+                        shouldRetryFail,
+                        targets.size(),
+                        result.successCount(),
+                        result.failCount(),
+                        totalTargetCount,
+                        totalSuccessCount,
+                        totalFailCount);
+
+                if (targets.isEmpty()) {
+                    completed = true;
+                    break;
+                }
+            }
+
+            return new PolicyExtractAllResult(
                     targetYear,
                     targetProdYear,
                     batchSize,
+                    loopLimit,
                     shouldRetryFail,
-                    result.targetCount(),
-                    result.successCount(),
-                    result.failCount(),
+                    loopCount,
                     totalTargetCount,
                     totalSuccessCount,
-                    totalFailCount);
+                    totalFailCount,
+                    completed
+            );
+        } finally {
+            executorService.shutdown();
+            runRegistry.release(runKey);
+        }
+    }
 
-            if (result.targetCount() == 0) {
-                completed = true;
-                break;
+    private WorkerResult runWorkerBatch(ExecutorService executorService,
+                                        int workerCount,
+                                        String endpoint,
+                                        PromptTemplate promptTemplate,
+                                        List<PolicyExtractTarget> targets) {
+        List<List<PolicyExtractTarget>> workerBuckets = distributeRoundRobin(targets, workerCount);
+        List<Future<WorkerResult>> futures = new ArrayList<>();
+        for (int i = 0; i < workerCount; i++) {
+            List<PolicyExtractTarget> workerTargets = workerBuckets.get(i);
+            if (workerTargets.isEmpty()) {
+                continue;
             }
+            log.info("Policy extract worker assigned | workerNo={} | endpoint={} | size={}",
+                    i + 1, endpoint, workerTargets.size());
+            futures.add(executorService.submit(createWorkerTask(i + 1, endpoint, promptTemplate, workerTargets)));
         }
 
-        return new PolicyExtractAllResult(
-                targetYear,
-                targetProdYear,
-                batchSize,
-                loopLimit,
-                shouldRetryFail,
-                loopCount,
-                totalTargetCount,
-                totalSuccessCount,
-                totalFailCount,
-                completed
-        );
+        int success = 0;
+        int fail = 0;
+        for (Future<WorkerResult> future : futures) {
+            try {
+                WorkerResult result = future.get();
+                success += result.successCount();
+                fail += result.failCount();
+            } catch (Exception e) {
+                fail++;
+                log.warn("Policy extract worker future failed. error={}", safeMessage(e));
+            }
+        }
+        return new WorkerResult(success, fail);
     }
 
     private Callable<WorkerResult> createWorkerTask(int workerNo,
@@ -180,13 +219,14 @@ public class PolicyExtractService {
                     PolicyExtractResponse result = callLlm(endpoint, promptTemplate, target);
                     policyExtractMapper.updatePolicyExtractSuccess(target, result);
                     success++;
-                    log.info("Policy extract PASS | workerNo={} | rcCode={} | rcRfileNo={} | rcRitemNo={} | itemCd={}",
-                            workerNo, target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(), result.itemCd());
+                    log.info("Policy extract record result | status=PASS | workerNo={} | rcCode={} | rcRfileNo={} | rcRitemNo={} | itemCd={} | value={} | reason={}",
+                            workerNo, target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(),
+                            result.itemCd(), cut(result.policy(), 100), cut(result.reason(), 200));
                 } catch (Exception e) {
                     policyExtractMapper.updatePolicyExtractFail(target, cut(safeMessage(e), 100));
                     fail++;
-                    log.warn("Policy extract FAIL | workerNo={} | rcCode={} | rcRfileNo={} | rcRitemNo={} | error={}",
-                            workerNo, target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(), safeMessage(e));
+                    log.warn("Policy extract record result | status=FAIL | workerNo={} | rcCode={} | rcRfileNo={} | rcRitemNo={} | error={}",
+                            workerNo, target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(), cut(safeMessage(e), 4000));
                 }
             }
 
@@ -235,7 +275,16 @@ public class PolicyExtractService {
                 ? normalizeProductionDate(target.getProdRegDate())
                 : "";
         String productionYear = normalizeProductionYear(target.getProdYear());
-        List<SubjectPolicyCandidate> candidates = subjectPolicyMapper.findSubjectCandidates("POLICY", productionDate, productionYear);
+        CandidateCacheKey cacheKey = new CandidateCacheKey("POLICY", productionDate, productionYear);
+        return candidateListJsonCache.computeIfAbsent(cacheKey, this::loadCandidateListJson);
+    }
+
+    private String loadCandidateListJson(CandidateCacheKey cacheKey) {
+        List<SubjectPolicyCandidate> candidates = subjectPolicyMapper.findSubjectCandidates(
+                cacheKey.clsCd(),
+                cacheKey.productionDate(),
+                cacheKey.productionYear()
+        );
         List<Map<String, Object>> rows = new ArrayList<>();
         for (SubjectPolicyCandidate candidate : candidates) {
             Map<String, Object> row = new LinkedHashMap<>();
@@ -251,8 +300,13 @@ public class PolicyExtractService {
         try {
             return objectMapper.writeValueAsString(rows);
         } catch (Exception e) {
-            throw new IllegalStateException("Failed to serialize policy candidates", e);
+            throw new IllegalStateException("Failed to serialize " + cacheKey.clsCd() + " candidates", e);
         }
+    }
+
+    private int calculateWorkerCount(int requestCount) {
+        int perWorkerSize = Math.max(1, properties.getPerWorkerSize());
+        return Math.max(1, (int) Math.ceil((double) Math.max(1, requestCount) / perWorkerSize));
     }
 
     @SuppressWarnings("unchecked")
@@ -283,8 +337,7 @@ public class PolicyExtractService {
     }
 
     private PolicyExtractResponse parsePolicyExtractJson(String content, PolicyExtractTarget target) throws Exception {
-        String json = extractJson(content);
-        JsonNode root = objectMapper.readTree(json);
+        JsonNode root = parseLlmJson("POLICY", content);
         return new PolicyExtractResponse(
                 textOrDefault(root, "RC_CODE", target.getRcCode()),
                 textOrDefault(root, "RC_RFILE_NO", target.getRcRfileNo()),
@@ -311,6 +364,15 @@ public class PolicyExtractService {
             throw new IllegalStateException("LLM response is not JSON: " + content);
         }
         return trimmed.substring(start, end + 1);
+    }
+
+    private JsonNode parseLlmJson(String subjectType, String content) throws Exception {
+        try {
+            return objectMapper.readTree(extractJson(content));
+        } catch (Exception e) {
+            throw new IllegalStateException("LLM " + subjectType + " response JSON parse failed | error="
+                    + safeMessage(e) + " | response=" + cut(content, 4000), e);
+        }
     }
 
     private String textOrDefault(JsonNode root, String fieldName, String defaultValue) {
@@ -385,5 +447,8 @@ public class PolicyExtractService {
     }
 
     private record WorkerResult(int successCount, int failCount) {
+    }
+
+    private record CandidateCacheKey(String clsCd, String productionDate, String productionYear) {
     }
 }

@@ -60,7 +60,11 @@
         SET ACTIVITY_CD = #{result.itemCd},
             ACTIVITY_NM = #{result.activityName},
             LLM_ACTIVITY_STATUS = 'PASS',
-            LLM_ACTIVITY_ERR_MSG = NULL
+            LLM_ACTIVITY_ERR_MSG = CASE
+                WHEN #{result.activityName} IN ('제외', '검토 필요', '간접 관련 없음') THEN #{result.reason}
+                ELSE NULL
+            END,
+            LLM_ACTIVITY_UPDT = CURRENT_TIMESTAMP(3)
         WHERE RC_CODE = #{target.rcCode}
           AND RC_RFILE_NO = #{target.rcRfileNo}
           AND RC_RITEM_NO = #{target.rcRitemNo}
@@ -69,7 +73,8 @@
     <update id="updateActivityExtractFail">
         UPDATE CN_RITEM
         SET LLM_ACTIVITY_STATUS = 'FAIL',
-            LLM_ACTIVITY_ERR_MSG = #{errorMessage}
+            LLM_ACTIVITY_ERR_MSG = #{errorMessage},
+            LLM_ACTIVITY_UPDT = CURRENT_TIMESTAMP(3)
         WHERE RC_CODE = #{target.rcCode}
           AND RC_RFILE_NO = #{target.rcRfileNo}
           AND RC_RITEM_NO = #{target.rcRitemNo}

@@ -60,7 +60,11 @@
         SET EX_EVENT_CD = #{result.itemCd},
             EX_EVENT_NM = #{result.eventName},
             LLM_EVENT_STATUS = 'PASS',
-            LLM_EVENT_ERR_MSG = NULL
+            LLM_EVENT_ERR_MSG = CASE
+                WHEN #{result.eventName} IN ('제외', '검토 필요', '간접 관련 없음') THEN #{result.reason}
+                ELSE NULL
+            END,
+            LLM_EVENT_UPDT = CURRENT_TIMESTAMP(3)
         WHERE RC_CODE = #{target.rcCode}
           AND RC_RFILE_NO = #{target.rcRfileNo}
           AND RC_RITEM_NO = #{target.rcRitemNo}
@@ -69,7 +73,8 @@
     <update id="updateEventExtractFail">
         UPDATE CN_RITEM
         SET LLM_EVENT_STATUS = 'FAIL',
-            LLM_EVENT_ERR_MSG = #{errorMessage}
+            LLM_EVENT_ERR_MSG = #{errorMessage},
+            LLM_EVENT_UPDT = CURRENT_TIMESTAMP(3)
         WHERE RC_CODE = #{target.rcCode}
           AND RC_RFILE_NO = #{target.rcRfileNo}
           AND RC_RITEM_NO = #{target.rcRitemNo}
