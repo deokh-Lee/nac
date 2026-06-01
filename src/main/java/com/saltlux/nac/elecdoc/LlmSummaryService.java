@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.saltlux.nac.prompt.PromptTemplate;
 import com.saltlux.nac.prompt.PromptTemplateRenderer;
 import com.saltlux.nac.prompt.PromptTemplateRepository;
+import com.saltlux.nac.progress.LlmExtractProgressService;
 import com.saltlux.nac.subject.SubjectPolicyCandidate;
 import com.saltlux.nac.subject.SubjectPolicyMapper;
 import java.time.Duration;
@@ -37,6 +38,7 @@ public class LlmSummaryService {
     private final PromptTemplateRepository promptTemplateRepository;
     private final PromptTemplateRenderer promptTemplateRenderer;
     private final SubjectPolicyMapper subjectPolicyMapper;
+    private final LlmExtractProgressService progressService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -45,12 +47,14 @@ public class LlmSummaryService {
                              PromptTemplateRepository promptTemplateRepository,
                              PromptTemplateRenderer promptTemplateRenderer,
                              SubjectPolicyMapper subjectPolicyMapper,
+                             LlmExtractProgressService progressService,
                              RestTemplateBuilder restTemplateBuilder) {
         this.llmSummaryMapper = llmSummaryMapper;
         this.properties = properties;
         this.promptTemplateRepository = promptTemplateRepository;
         this.promptTemplateRenderer = promptTemplateRenderer;
         this.subjectPolicyMapper = subjectPolicyMapper;
+        this.progressService = progressService;
         this.restTemplate = restTemplateBuilder
                 .setConnectTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                 .setReadTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
@@ -74,6 +78,34 @@ public class LlmSummaryService {
             return new LlmSummaryBatchResult(targetYear, promptTemplate.name(), requestCount, 0, workerCount, perWorkerSize, 0, 0);
         }
 
+        Long runId = null;
+        WorkerResult result = new WorkerResult(0, 0);
+        try {
+            runId = progressService.startRun("SUMMARY_BATCH", targetYear, null, shouldRetryFail, requestCount, 1);
+            result = summarizeTargets(promptTemplate, targets, workerCount, perWorkerSize, runId);
+            progressService.finishRun(runId, true, 1, targets.size(), result.successCount(), result.failCount());
+        } catch (RuntimeException e) {
+            progressService.failRun(runId, 1, targets.size(), result.successCount(), result.failCount(), safeMessage(e));
+            throw e;
+        }
+
+        return new LlmSummaryBatchResult(
+                targetYear,
+                promptTemplate.name(),
+                requestCount,
+                targets.size(),
+                workerCount,
+                perWorkerSize,
+                result.successCount(),
+                result.failCount()
+        );
+    }
+
+    private WorkerResult summarizeTargets(PromptTemplate promptTemplate,
+                                          List<LlmSummaryTarget> targets,
+                                          int workerCount,
+                                          int perWorkerSize,
+                                          Long runId) {
         List<List<LlmSummaryTarget>> workerBuckets = distributeRoundRobin(targets, workerCount);
         ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
         List<Future<WorkerResult>> futures = new ArrayList<>();
@@ -89,7 +121,7 @@ public class LlmSummaryService {
                 submittedCount += workerTargets.size();
                 log.info("LLM worker assigned | workerNo={} | prompt={} | endpoint={} | size={}",
                         i + 1, promptTemplate.name(), endpoint, workerTargets.size());
-                futures.add(executorService.submit(createWorkerTask(i + 1, endpoint, promptTemplate, workerTargets)));
+                futures.add(executorService.submit(createWorkerTask(i + 1, endpoint, promptTemplate, workerTargets, runId)));
             }
 
             int success = 0;
@@ -105,7 +137,7 @@ public class LlmSummaryService {
                 }
             }
 
-            return new LlmSummaryBatchResult(targetYear, promptTemplate.name(), requestCount, submittedCount, workerCount, perWorkerSize, success, fail);
+            return new WorkerResult(success, fail);
         } finally {
             executorService.shutdown();
         }
@@ -140,31 +172,44 @@ public class LlmSummaryService {
         int totalSuccessCount = 0;
         int totalFailCount = 0;
         boolean completed = false;
+        Long runId = null;
 
-        while (loopCount < loopLimit) {
-            loopCount++;
-            LlmSummaryBatchResult result = summarizeBatch(targetYear, batchSize, shouldRetryFail, promptTemplate.name());
+        try {
+            runId = progressService.startRun("SUMMARY_ALL", targetYear, null, shouldRetryFail, batchSize, loopLimit);
+            while (loopCount < loopLimit) {
+                loopCount++;
+                List<LlmSummaryTarget> targets = llmSummaryMapper.findSummaryTargets(targetYear, batchSize, shouldRetryFail);
+                WorkerResult result = targets.isEmpty()
+                        ? new WorkerResult(0, 0)
+                        : summarizeTargets(promptTemplate, targets, workerCount, perWorkerSize, runId);
 
-            totalTargetCount += result.targetCount();
-            totalSuccessCount += result.successCount();
-            totalFailCount += result.failCount();
+                totalTargetCount += targets.size();
+                totalSuccessCount += result.successCount();
+                totalFailCount += result.failCount();
 
-            log.info("llm-summary/all loop#{} | year={} | prompt={} | batchSize={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
-                    loopCount,
-                    targetYear,
-                    promptTemplate.name(),
-                    batchSize,
-                    result.targetCount(),
-                    result.successCount(),
-                    result.failCount(),
-                    totalTargetCount,
-                    totalSuccessCount,
-                    totalFailCount);
+                log.info("llm-summary/all loop#{} | year={} | prompt={} | batchSize={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
+                        loopCount,
+                        targetYear,
+                        promptTemplate.name(),
+                        batchSize,
+                        targets.size(),
+                        result.successCount(),
+                        result.failCount(),
+                        totalTargetCount,
+                        totalSuccessCount,
+                        totalFailCount);
 
-            if (result.targetCount() == 0) {
-                completed = true;
-                break;
+                progressService.updateRunProgress(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
+
+                if (targets.isEmpty()) {
+                    completed = true;
+                    break;
+                }
             }
+            progressService.finishRun(runId, completed, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
+        } catch (RuntimeException e) {
+            progressService.failRun(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount, safeMessage(e));
+            throw e;
         }
 
         return new LlmSummaryAllBatchResult(
@@ -181,7 +226,11 @@ public class LlmSummaryService {
         );
     }
 
-    private Callable<WorkerResult> createWorkerTask(int workerNo, String endpoint, PromptTemplate promptTemplate, List<LlmSummaryTarget> targets) {
+    private Callable<WorkerResult> createWorkerTask(int workerNo,
+                                                    String endpoint,
+                                                    PromptTemplate promptTemplate,
+                                                    List<LlmSummaryTarget> targets,
+                                                    Long runId) {
         return () -> {
             int success = 0;
             int fail = 0;
@@ -196,11 +245,13 @@ public class LlmSummaryService {
                             llmResult.flag(),
                             cut(llmResult.summary(), properties.getMaxSummaryLength())
                     );
+                    progressService.recordSummarySuccess(runId, target, llmResult.flag());
                     success++;
                     log.info("LLM summary PASS | workerNo={} | prompt={} | flag={} | fileName={} | zipSeq={} | rcRfileNo={} | rcRitemNo={}",
                             workerNo, promptTemplate.name(), llmResult.flag(), target.getFileName(), target.getZipSeq(), target.getRcRfileNo(), target.getRcRitemNo());
                 } catch (Exception e) {
                     llmSummaryMapper.updateSummaryFail(target, cut(safeMessage(e), 2000));
+                    progressService.recordSummaryFail(runId, target, safeMessage(e));
                     fail++;
                     log.warn("LLM summary FAIL | workerNo={} | prompt={} | fileName={} | zipSeq={} | rcRfileNo={} | rcRitemNo={} | error={}",
                             workerNo, promptTemplate.name(), target.getFileName(), target.getZipSeq(), target.getRcRfileNo(), target.getRcRitemNo(), safeMessage(e));

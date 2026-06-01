@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.saltlux.nac.progress.LlmExtractProgressMapper">
+
+    <insert id="insertRun"
+            parameterType="com.saltlux.nac.progress.LlmExtractRun"
+            useGeneratedKeys="true"
+            keyProperty="runId">
+        INSERT INTO LLM_EXTRACT_RUN (
+            PROCESS_TYPE,
+            TRANSFER_YEAR,
+            PROD_YEAR,
+            RETRY_FAIL,
+            BATCH_SIZE,
+            MAX_LOOP,
+            STATUS,
+            STARTED_AT
+        ) VALUES (
+            #{processType},
+            #{transferYear},
+            #{prodYear},
+            #{retryFail},
+            #{batchSize},
+            #{maxLoop},
+            #{status},
+            CURRENT_TIMESTAMP(3)
+        )
+    </insert>
+
+    <update id="finishRun">
+        UPDATE LLM_EXTRACT_RUN
+        SET STATUS = #{status},
+            ENDED_AT = CURRENT_TIMESTAMP(3),
+            LOOP_COUNT = #{loopCount},
+            TOTAL_TARGET_COUNT = #{totalTargetCount},
+            TOTAL_SUCCESS_COUNT = #{totalSuccessCount},
+            TOTAL_FAIL_COUNT = #{totalFailCount},
+            ERROR_MSG = #{errorMsg},
+            UPDATE_DATE = CURRENT_TIMESTAMP
+        WHERE RUN_ID = #{runId}
+    </update>
+
+    <update id="updateRunProgress">
+        UPDATE LLM_EXTRACT_RUN
+        SET LOOP_COUNT = #{loopCount},
+            TOTAL_TARGET_COUNT = #{totalTargetCount},
+            TOTAL_SUCCESS_COUNT = #{totalSuccessCount},
+            TOTAL_FAIL_COUNT = #{totalFailCount},
+            UPDATE_DATE = CURRENT_TIMESTAMP
+        WHERE RUN_ID = #{runId}
+          AND STATUS = 'RUNNING'
+    </update>
+
+    <insert id="insertItemLog" parameterType="com.saltlux.nac.progress.LlmExtractItemLog">
+        INSERT INTO LLM_EXTRACT_ITEM_LOG (
+            RUN_ID,
+            SUBJECT_TYPE,
+            RC_CODE,
+            RC_RFILE_NO,
+            RC_RITEM_NO,
+            STATUS,
+            ITEM_CD,
+            ITEM_NM,
+            ERROR_MSG,
+            PROCESSED_AT
+        ) VALUES (
+            #{runId},
+            #{subjectType},
+            #{rcCode},
+            #{rcRfileNo},
+            #{rcRitemNo},
+            #{status},
+            #{itemCd},
+            #{itemNm},
+            #{errorMsg},
+            CURRENT_TIMESTAMP(3)
+        )
+    </insert>
+
+</mapper>

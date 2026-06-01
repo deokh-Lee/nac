@@ -6,6 +6,7 @@ import com.saltlux.nac.elecdoc.DocumentLlmProperties;
 import com.saltlux.nac.prompt.PromptTemplate;
 import com.saltlux.nac.prompt.PromptTemplateRenderer;
 import com.saltlux.nac.prompt.PromptTemplateRepository;
+import com.saltlux.nac.progress.LlmExtractProgressService;
 import com.saltlux.nac.subject.SubjectExtractRunRegistry;
 import com.saltlux.nac.subject.SubjectPolicyCandidate;
 import com.saltlux.nac.subject.SubjectPolicyMapper;
@@ -43,6 +44,7 @@ public class PolicyExtractService {
     private final PromptTemplateRepository promptTemplateRepository;
     private final PromptTemplateRenderer promptTemplateRenderer;
     private final SubjectExtractRunRegistry runRegistry;
+    private final LlmExtractProgressService progressService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ConcurrentMap<CandidateCacheKey, String> candidateListJsonCache = new ConcurrentHashMap<>();
@@ -53,6 +55,7 @@ public class PolicyExtractService {
                                 PromptTemplateRepository promptTemplateRepository,
                                 PromptTemplateRenderer promptTemplateRenderer,
                                 SubjectExtractRunRegistry runRegistry,
+                                LlmExtractProgressService progressService,
                                 RestTemplateBuilder restTemplateBuilder) {
         this.policyExtractMapper = policyExtractMapper;
         this.subjectPolicyMapper = subjectPolicyMapper;
@@ -60,6 +63,7 @@ public class PolicyExtractService {
         this.promptTemplateRepository = promptTemplateRepository;
         this.promptTemplateRenderer = promptTemplateRenderer;
         this.runRegistry = runRegistry;
+        this.progressService = progressService;
         this.restTemplate = restTemplateBuilder
                 .setConnectTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                 .setReadTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
@@ -88,10 +92,20 @@ public class PolicyExtractService {
 
         PromptTemplate promptTemplate = promptTemplateRepository.get(PROMPT_NAME);
         ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
+        Long runId = null;
+        int successCount = 0;
+        int failCount = 0;
         try {
-            WorkerResult result = runWorkerBatch(executorService, workerCount, endpoint, promptTemplate, targets);
+            runId = progressService.startRun("POLICY_BATCH", targetYear, targetProdYear, shouldRetryFail, requestCount, 1);
+            WorkerResult result = runWorkerBatch(executorService, workerCount, endpoint, promptTemplate, targets, runId);
+            successCount = result.successCount();
+            failCount = result.failCount();
+            progressService.finishRun(runId, true, 1, targets.size(), successCount, failCount);
             return new PolicyExtractResult(targetYear, targetProdYear, requestCount, requestOffset, shouldRetryFail,
-                    targets.size(), workerCount, result.successCount(), result.failCount());
+                    targets.size(), workerCount, successCount, failCount);
+        } catch (RuntimeException e) {
+            progressService.failRun(runId, 1, targets.size(), successCount, failCount, safeMessage(e));
+            throw e;
         } finally {
             executorService.shutdown();
         }
@@ -118,8 +132,10 @@ public class PolicyExtractService {
         int workerCount = calculateWorkerCount(batchSize);
         PromptTemplate promptTemplate = promptTemplateRepository.get(PROMPT_NAME);
         ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
+        Long runId = null;
 
         try {
+            runId = progressService.startRun("POLICY_ALL", targetYear, targetProdYear, shouldRetryFail, batchSize, loopLimit);
             while (loopCount < loopLimit) {
                 loopCount++;
                 List<PolicyExtractTarget> targets = policyExtractMapper.findPolicyExtractTargets(
@@ -131,7 +147,7 @@ public class PolicyExtractService {
                 );
                 WorkerResult result = targets.isEmpty()
                         ? new WorkerResult(0, 0)
-                        : runWorkerBatch(executorService, workerCount, endpoint, promptTemplate, targets);
+                        : runWorkerBatch(executorService, workerCount, endpoint, promptTemplate, targets, runId);
                 totalTargetCount += targets.size();
                 totalSuccessCount += result.successCount();
                 totalFailCount += result.failCount();
@@ -149,12 +165,15 @@ public class PolicyExtractService {
                         totalSuccessCount,
                         totalFailCount);
 
+                progressService.updateRunProgress(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
+
                 if (targets.isEmpty()) {
                     completed = true;
                     break;
                 }
             }
 
+            progressService.finishRun(runId, completed, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
             return new PolicyExtractAllResult(
                     targetYear,
                     targetProdYear,
@@ -167,6 +186,9 @@ public class PolicyExtractService {
                     totalFailCount,
                     completed
             );
+        } catch (RuntimeException e) {
+            progressService.failRun(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount, safeMessage(e));
+            throw e;
         } finally {
             executorService.shutdown();
             runRegistry.release(runKey);
@@ -177,7 +199,8 @@ public class PolicyExtractService {
                                         int workerCount,
                                         String endpoint,
                                         PromptTemplate promptTemplate,
-                                        List<PolicyExtractTarget> targets) {
+                                        List<PolicyExtractTarget> targets,
+                                        Long runId) {
         List<List<PolicyExtractTarget>> workerBuckets = distributeRoundRobin(targets, workerCount);
         List<Future<WorkerResult>> futures = new ArrayList<>();
         for (int i = 0; i < workerCount; i++) {
@@ -187,7 +210,7 @@ public class PolicyExtractService {
             }
             log.info("Policy extract worker assigned | workerNo={} | endpoint={} | size={}",
                     i + 1, endpoint, workerTargets.size());
-            futures.add(executorService.submit(createWorkerTask(i + 1, endpoint, promptTemplate, workerTargets)));
+            futures.add(executorService.submit(createWorkerTask(i + 1, endpoint, promptTemplate, workerTargets, runId)));
         }
 
         int success = 0;
@@ -208,7 +231,8 @@ public class PolicyExtractService {
     private Callable<WorkerResult> createWorkerTask(int workerNo,
                                                     String endpoint,
                                                     PromptTemplate promptTemplate,
-                                                    List<PolicyExtractTarget> targets) {
+                                                    List<PolicyExtractTarget> targets,
+                                                    Long runId) {
         return () -> {
             int success = 0;
             int fail = 0;
@@ -218,12 +242,14 @@ public class PolicyExtractService {
                 try {
                     PolicyExtractResponse result = callLlm(endpoint, promptTemplate, target);
                     policyExtractMapper.updatePolicyExtractSuccess(target, result);
+                    progressService.recordSuccess(runId, "POLICY", target, result.itemCd(), result.policy());
                     success++;
                     log.info("Policy extract record result | status=PASS | workerNo={} | rcCode={} | rcRfileNo={} | rcRitemNo={} | itemCd={} | value={} | reason={}",
                             workerNo, target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(),
                             result.itemCd(), cut(result.policy(), 100), cut(result.reason(), 200));
                 } catch (Exception e) {
                     policyExtractMapper.updatePolicyExtractFail(target, cut(safeMessage(e), 100));
+                    progressService.recordFail(runId, "POLICY", target, safeMessage(e));
                     fail++;
                     log.warn("Policy extract record result | status=FAIL | workerNo={} | rcCode={} | rcRfileNo={} | rcRitemNo={} | error={}",
                             workerNo, target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(), cut(safeMessage(e), 4000));

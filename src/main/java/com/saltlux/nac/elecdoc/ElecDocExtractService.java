@@ -18,6 +18,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import com.saltlux.nac.progress.LlmExtractProgressService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -35,15 +36,18 @@ public class ElecDocExtractService {
     private final DocumentPathResolver documentPathResolver;
     private final DocumentExtractProperties properties;
     private final TextExtractionService textExtractionService;
+    private final LlmExtractProgressService progressService;
 
     public ElecDocExtractService(ElecDocMapper elecDocMapper,
                                  DocumentPathResolver documentPathResolver,
                                  DocumentExtractProperties properties,
-                                 TextExtractionService textExtractionService) {
+                                 TextExtractionService textExtractionService,
+                                 LlmExtractProgressService progressService) {
         this.elecDocMapper = elecDocMapper;
         this.documentPathResolver = documentPathResolver;
         this.properties = properties;
         this.textExtractionService = textExtractionService;
+        this.progressService = progressService;
     }
 
     public ExtractBatchResult extractBatch(String transferYear, Integer limit, Integer offset) {
@@ -56,7 +60,20 @@ public class ElecDocExtractService {
         int targetOffset = offset == null || offset < 0 ? 0 : offset;
 
         List<CnElecDoc> documents = elecDocMapper.findTargetDocuments(targetYear, targetLimit, targetOffset, retryFail);
-        BatchCounter counter = processDocumentsInParallel(documents);
+        if (documents.isEmpty()) {
+            return new ExtractBatchResult(targetYear, targetLimit, targetOffset, 0, 0, 0);
+        }
+
+        Long runId = null;
+        BatchCounter counter = new BatchCounter(0, 0);
+        try {
+            runId = progressService.startRun("TEXT_BATCH", targetYear, null, retryFail, targetLimit, 1);
+            counter = processDocumentsInParallel(documents, runId);
+            progressService.finishRun(runId, true, 1, documents.size(), counter.successCount(), counter.failCount());
+        } catch (RuntimeException e) {
+            progressService.failRun(runId, 1, documents.size(), counter.successCount(), counter.failCount(), safeMessage(e));
+            throw e;
+        }
 
         return new ExtractBatchResult(
                 targetYear,
@@ -68,7 +85,7 @@ public class ElecDocExtractService {
         );
     }
 
-    private BatchCounter processDocumentsInParallel(List<CnElecDoc> documents) {
+    private BatchCounter processDocumentsInParallel(List<CnElecDoc> documents, Long runId) {
         if (documents == null || documents.isEmpty()) {
             return new BatchCounter(0, 0);
         }
@@ -85,7 +102,7 @@ public class ElecDocExtractService {
             int fileNo = 0;
             for (CnElecDoc document : documents) {
                 int currentFileNo = ++fileNo;
-                futures.add(executorService.submit(createDocumentTask(currentFileNo, documents.size(), document)));
+                futures.add(executorService.submit(createDocumentTask(currentFileNo, documents.size(), document, runId)));
             }
 
             int successCount = 0;
@@ -112,7 +129,7 @@ public class ElecDocExtractService {
         }
     }
 
-    private Callable<BatchCounter> createDocumentTask(int fileNo, int totalCount, CnElecDoc document) {
+    private Callable<BatchCounter> createDocumentTask(int fileNo, int totalCount, CnElecDoc document, Long runId) {
         return () -> {
             String fileName = documentPathResolver.resolveFileName(document);
             log.info("extract task start | fileNo={}/{} | thread={} | fileName={} | rcRfileNo={} | rcRitemNo={}",
@@ -125,13 +142,15 @@ public class ElecDocExtractService {
 
             long startTime = System.currentTimeMillis();
             try {
-                extractOne(document);
-                log.info("extract task end | fileNo={}/{} | status=SUCCESS | fileName={} | elapsedMs={}",
+                BatchCounter counter = extractOne(document, runId);
+                log.info("extract task end | fileNo={}/{} | status=END | fileName={} | success={} | fail={} | elapsedMs={}",
                         fileNo,
                         totalCount,
                         fileName,
+                        counter.successCount(),
+                        counter.failCount(),
                         System.currentTimeMillis() - startTime);
-                return new BatchCounter(1, 0);
+                return counter;
             } catch (Exception e) {
                 log.warn("extract task end | fileNo={}/{} | status=FAIL | fileName={} | elapsedMs={} | error={}",
                         fileNo,
@@ -155,30 +174,41 @@ public class ElecDocExtractService {
         int totalSuccessCount = 0;
         int totalFailCount = 0;
         boolean completed = false;
+        Long runId = null;
 
-        while (loopCount < loopLimit) {
-            loopCount++;
+        try {
+            runId = progressService.startRun("TEXT_ALL", targetYear, null, shouldRetryFail, batchSize, loopLimit);
+            while (loopCount < loopLimit) {
+                loopCount++;
 
-            ExtractBatchResult result = extractBatch(targetYear, batchSize, 0, shouldRetryFail);
-            totalTargetCount += result.targetCount();
-            totalSuccessCount += result.successCount();
-            totalFailCount += result.failCount();
+                List<CnElecDoc> documents = elecDocMapper.findTargetDocuments(targetYear, batchSize, 0, shouldRetryFail);
+                BatchCounter result = processDocumentsInParallel(documents, runId);
+                totalTargetCount += documents.size();
+                totalSuccessCount += result.successCount();
+                totalFailCount += result.failCount();
 
-            log.info("extract/all loop#{} | year={} | batchSize={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
-                    loopCount,
-                    targetYear,
-                    batchSize,
-                    result.targetCount(),
-                    result.successCount(),
-                    result.failCount(),
-                    totalTargetCount,
-                    totalSuccessCount,
-                    totalFailCount);
+                log.info("extract/all loop#{} | year={} | batchSize={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
+                        loopCount,
+                        targetYear,
+                        batchSize,
+                        documents.size(),
+                        result.successCount(),
+                        result.failCount(),
+                        totalTargetCount,
+                        totalSuccessCount,
+                        totalFailCount);
 
-            if (result.targetCount() == 0) {
-                completed = true;
-                break;
+                progressService.updateRunProgress(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
+
+                if (documents.isEmpty()) {
+                    completed = true;
+                    break;
+                }
             }
+            progressService.finishRun(runId, completed, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
+        } catch (RuntimeException e) {
+            progressService.failRun(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount, safeMessage(e));
+            throw e;
         }
 
         return new ExtractAllBatchResult(
@@ -196,6 +226,10 @@ public class ElecDocExtractService {
 
     @Transactional
     public void extractOne(CnElecDoc document) {
+        extractOne(document, null);
+    }
+
+    private BatchCounter extractOne(CnElecDoc document, Long runId) {
         String fileName = documentPathResolver.resolveFileName(document);
         Path filePath = documentPathResolver.resolve(document);
 
@@ -206,21 +240,25 @@ public class ElecDocExtractService {
                     document.getRcRitemNo(),
                     filePath);
             long startTime = System.currentTimeMillis();
-            extractZipEntries(document, filePath, fileName);
+            BatchCounter counter = extractZipEntries(document, filePath, fileName, runId);
             log.info("END extract ZIP | fileName={} | rcRfileNo={} | rcRitemNo={} | elapsedMs={}",
                     fileName,
                     document.getRcRfileNo(),
                     document.getRcRitemNo(),
                     System.currentTimeMillis() - startTime);
-            return;
+            return counter;
         }
 
         ExtractElecDoc extract = createBaseExtract(document, fileName, NORMAL_FILE_ZIP_SEQ);
         extractSingleFile(filePath, extract, fileName, FileTypeUtils.fileTypeOf(fileName), createImageContext(document, fileName));
         elecDocMapper.upsertExtractDocument(extract);
+        progressService.recordTextResult(runId, extract);
+        return counterOf(extract);
     }
 
-    private void extractZipEntries(CnElecDoc document, Path zipFilePath, String zipFileName) {
+    private BatchCounter extractZipEntries(CnElecDoc document, Path zipFilePath, String zipFileName, Long runId) {
+        int successCount = 0;
+        int failCount = 0;
         if (!Files.exists(zipFilePath)) {
             ExtractElecDoc failExtract = createBaseExtract(document, zipFileName, NORMAL_FILE_ZIP_SEQ);
             failExtract.setFileType("ZIP");
@@ -229,7 +267,8 @@ public class ElecDocExtractService {
             failExtract.setExtractStatus("FAIL");
             failExtract.setExtractErrMsg("FILE_NOT_FOUND | ZIP file not found: " + zipFilePath);
             elecDocMapper.upsertExtractDocument(failExtract);
-            return;
+            progressService.recordTextResult(runId, failExtract);
+            return new BatchCounter(0, 1);
         }
 
         int seq = 0;
@@ -269,6 +308,10 @@ public class ElecDocExtractService {
                 } finally {
                     deleteQuietly(tempFile);
                     elecDocMapper.upsertExtractDocument(extract);
+                    progressService.recordTextResult(runId, extract);
+                    BatchCounter counter = counterOf(extract);
+                    successCount += counter.successCount();
+                    failCount += counter.failCount();
                     zipInputStream.closeEntry();
                 }
             }
@@ -281,6 +324,8 @@ public class ElecDocExtractService {
                 emptyExtract.setExtractStatus("FAIL");
                 emptyExtract.setExtractErrMsg("EMPTY_ZIP | ZIP has no file entries: " + zipFilePath);
                 elecDocMapper.upsertExtractDocument(emptyExtract);
+                progressService.recordTextResult(runId, emptyExtract);
+                failCount++;
             }
         } catch (Exception e) {
             ExtractElecDoc failExtract = createBaseExtract(document, zipFileName, NORMAL_FILE_ZIP_SEQ);
@@ -290,7 +335,10 @@ public class ElecDocExtractService {
             failExtract.setExtractStatus("FAIL");
             failExtract.setExtractErrMsg(shortErrorMessage(e));
             elecDocMapper.upsertExtractDocument(failExtract);
+            progressService.recordTextResult(runId, failExtract);
+            failCount++;
         }
+        return new BatchCounter(successCount, failCount);
     }
 
     private void extractSingleFile(Path filePath,
@@ -373,6 +421,13 @@ public class ElecDocExtractService {
         extract.setDataYear(parseYear(document));
         extract.setQueueState("C");
         return extract;
+    }
+
+    private BatchCounter counterOf(ExtractElecDoc extract) {
+        if ("PASS".equals(extract.getExtractStatus())) {
+            return new BatchCounter(1, 0);
+        }
+        return new BatchCounter(0, 1);
     }
 
     private DocumentImageContext createImageContext(CnElecDoc document, String fileName) {

@@ -13,6 +13,7 @@ import com.saltlux.nac.policy.PolicyExtractTarget;
 import com.saltlux.nac.prompt.PromptTemplate;
 import com.saltlux.nac.prompt.PromptTemplateRenderer;
 import com.saltlux.nac.prompt.PromptTemplateRepository;
+import com.saltlux.nac.progress.LlmExtractProgressService;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -50,6 +51,7 @@ public class SubjectExtractService {
     private final PromptTemplateRepository promptTemplateRepository;
     private final PromptTemplateRenderer promptTemplateRenderer;
     private final SubjectExtractRunRegistry runRegistry;
+    private final LlmExtractProgressService progressService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ConcurrentMap<CandidateCacheKey, String> candidateListJsonCache = new ConcurrentHashMap<>();
@@ -63,6 +65,7 @@ public class SubjectExtractService {
                                  PromptTemplateRepository promptTemplateRepository,
                                  PromptTemplateRenderer promptTemplateRenderer,
                                  SubjectExtractRunRegistry runRegistry,
+                                 LlmExtractProgressService progressService,
                                  RestTemplateBuilder restTemplateBuilder) {
         this.subjectExtractMapper = subjectExtractMapper;
         this.subjectPolicyMapper = subjectPolicyMapper;
@@ -73,6 +76,7 @@ public class SubjectExtractService {
         this.promptTemplateRepository = promptTemplateRepository;
         this.promptTemplateRenderer = promptTemplateRenderer;
         this.runRegistry = runRegistry;
+        this.progressService = progressService;
         this.restTemplate = restTemplateBuilder
                 .setConnectTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                 .setReadTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
@@ -115,12 +119,28 @@ public class SubjectExtractService {
         }
 
         ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
+        Long runId = null;
+        SubjectBatchResult result = new SubjectBatchResult(
+                emptyResult("POLICY", policyEndpoint),
+                emptyResult("EVENT", eventEndpoint),
+                emptyResult("ACTIVITY", activityEndpoint)
+        );
         try {
-            SubjectBatchResult result = runSubjectBatch(
+            runId = progressService.startRun("SUBJECT_BATCH", targetYear, targetProdYear, shouldRetryFail, requestCount, 1);
+            result = runSubjectBatch(
                     executorService,
                     new SubjectEndpoints(policyEndpoint, eventEndpoint, activityEndpoint),
                     targets,
-                    shouldRetryFail
+                    shouldRetryFail,
+                    runId
+            );
+            progressService.finishRun(
+                    runId,
+                    true,
+                    1,
+                    targets.size(),
+                    totalSuccessCount(result),
+                    totalFailCount(result)
             );
 
             return new SubjectExtractResult(
@@ -135,6 +155,9 @@ public class SubjectExtractService {
                     result.event(),
                     result.activity()
             );
+        } catch (RuntimeException e) {
+            progressService.failRun(runId, 1, targets.size(), totalSuccessCount(result), totalFailCount(result), safeMessage(e));
+            throw e;
         } finally {
             executorService.shutdown();
         }
@@ -161,8 +184,10 @@ public class SubjectExtractService {
         int workerCount = 3;
         SubjectEndpoints endpoints = new SubjectEndpoints(policy.endpoint, event.endpoint, activity.endpoint);
         ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
+        Long runId = null;
 
         try {
+            runId = progressService.startRun("SUBJECT_ALL", targetYear, targetProdYear, shouldRetryFail, batchSize, loopLimit);
             while (loopCount < loopLimit) {
                 loopCount++;
                 List<PolicyExtractTarget> targets = subjectExtractMapper.findSubjectExtractTargets(
@@ -178,7 +203,7 @@ public class SubjectExtractService {
                                 emptyResult("EVENT", endpoints.eventEndpoint()),
                                 emptyResult("ACTIVITY", endpoints.activityEndpoint())
                         )
-                        : runSubjectBatch(executorService, endpoints, targets, shouldRetryFail);
+                        : runSubjectBatch(executorService, endpoints, targets, shouldRetryFail, runId);
                 totalTargetCount += targets.size();
                 policy.add(result.policy());
                 event.add(result.event());
@@ -198,12 +223,28 @@ public class SubjectExtractService {
                         result.activity().successCount(),
                         result.activity().failCount());
 
+                progressService.updateRunProgress(
+                        runId,
+                        loopCount,
+                        totalTargetCount,
+                        policy.successCount + event.successCount + activity.successCount,
+                        policy.failCount + event.failCount + activity.failCount
+                );
+
                 if (targets.isEmpty()) {
                     completed = true;
                     break;
                 }
             }
 
+            progressService.finishRun(
+                    runId,
+                    completed,
+                    loopCount,
+                    totalTargetCount,
+                    policy.successCount + event.successCount + activity.successCount,
+                    policy.failCount + event.failCount + activity.failCount
+            );
             return new SubjectExtractAllResult(
                     targetYear,
                     targetProdYear,
@@ -217,6 +258,16 @@ public class SubjectExtractService {
                     activity.toResult(),
                     completed
             );
+        } catch (RuntimeException e) {
+            progressService.failRun(
+                    runId,
+                    loopCount,
+                    totalTargetCount,
+                    policy.successCount + event.successCount + activity.successCount,
+                    policy.failCount + event.failCount + activity.failCount,
+                    safeMessage(e)
+            );
+            throw e;
         } finally {
             executorService.shutdown();
             runRegistry.release(runKey);
@@ -226,11 +277,12 @@ public class SubjectExtractService {
     private SubjectBatchResult runSubjectBatch(ExecutorService executorService,
                                                SubjectEndpoints endpoints,
                                                List<PolicyExtractTarget> targets,
-                                               boolean retryFail) {
+                                               boolean retryFail,
+                                               Long runId) {
         List<Future<SubjectExtractItemResult>> futures = new ArrayList<>();
-        futures.add(executorService.submit(createPolicyTask(endpoints.policyEndpoint(), targets, retryFail)));
-        futures.add(executorService.submit(createEventTask(endpoints.eventEndpoint(), targets, retryFail)));
-        futures.add(executorService.submit(createActivityTask(endpoints.activityEndpoint(), targets, retryFail)));
+        futures.add(executorService.submit(createPolicyTask(endpoints.policyEndpoint(), targets, retryFail, runId)));
+        futures.add(executorService.submit(createEventTask(endpoints.eventEndpoint(), targets, retryFail, runId)));
+        futures.add(executorService.submit(createActivityTask(endpoints.activityEndpoint(), targets, retryFail, runId)));
 
         return new SubjectBatchResult(
                 getFutureResult(futures.get(0), "POLICY", endpoints.policyEndpoint()),
@@ -241,7 +293,8 @@ public class SubjectExtractService {
 
     private Callable<SubjectExtractItemResult> createPolicyTask(String endpoint,
                                                                 List<PolicyExtractTarget> targets,
-                                                                boolean retryFail) {
+                                                                boolean retryFail,
+                                                                Long runId) {
         return () -> {
             PromptTemplate promptTemplate = promptTemplateRepository.get("policy_extract");
             int targetCount = 0;
@@ -255,12 +308,14 @@ public class SubjectExtractService {
                 try {
                     PolicyExtractResponse result = callPolicyLlm(endpoint, promptTemplate, target);
                     policyExtractMapper.updatePolicyExtractSuccess(target, result);
+                    progressService.recordSuccess(runId, "POLICY", target, result.itemCd(), result.policy());
                     success++;
                     log.info("Subject extract record result | subject=POLICY | status=PASS | rcCode={} | rcRfileNo={} | rcRitemNo={} | itemCd={} | value={} | reason={}",
                             target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(),
                             result.itemCd(), cut(result.policy(), 100), cut(result.reason(), 200));
                 } catch (Exception e) {
                     policyExtractMapper.updatePolicyExtractFail(target, cut(safeMessage(e), 100));
+                    progressService.recordFail(runId, "POLICY", target, safeMessage(e));
                     fail++;
                     log.warn("Subject extract record result | subject=POLICY | status=FAIL | rcCode={} | rcRfileNo={} | rcRitemNo={} | error={}",
                             target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(), cut(safeMessage(e), 4000));
@@ -272,7 +327,8 @@ public class SubjectExtractService {
 
     private Callable<SubjectExtractItemResult> createEventTask(String endpoint,
                                                                List<PolicyExtractTarget> targets,
-                                                               boolean retryFail) {
+                                                               boolean retryFail,
+                                                               Long runId) {
         return () -> {
             PromptTemplate promptTemplate = promptTemplateRepository.get("event_extract");
             int targetCount = 0;
@@ -286,12 +342,14 @@ public class SubjectExtractService {
                 try {
                     EventExtractResponse result = callEventLlm(endpoint, promptTemplate, target);
                     eventExtractMapper.updateEventExtractSuccess(target, result);
+                    progressService.recordSuccess(runId, "EVENT", target, result.itemCd(), result.eventName());
                     success++;
                     log.info("Subject extract record result | subject=EVENT | status=PASS | rcCode={} | rcRfileNo={} | rcRitemNo={} | itemCd={} | value={} | reason={}",
                             target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(),
                             result.itemCd(), cut(result.eventName(), 100), cut(result.reason(), 200));
                 } catch (Exception e) {
                     eventExtractMapper.updateEventExtractFail(target, cut(safeMessage(e), 500));
+                    progressService.recordFail(runId, "EVENT", target, safeMessage(e));
                     fail++;
                     log.warn("Subject extract record result | subject=EVENT | status=FAIL | rcCode={} | rcRfileNo={} | rcRitemNo={} | error={}",
                             target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(), cut(safeMessage(e), 4000));
@@ -303,7 +361,8 @@ public class SubjectExtractService {
 
     private Callable<SubjectExtractItemResult> createActivityTask(String endpoint,
                                                                   List<PolicyExtractTarget> targets,
-                                                                  boolean retryFail) {
+                                                                  boolean retryFail,
+                                                                  Long runId) {
         return () -> {
             PromptTemplate promptTemplate = promptTemplateRepository.get("activity_extract");
             int targetCount = 0;
@@ -317,12 +376,14 @@ public class SubjectExtractService {
                 try {
                     ActivityExtractResponse result = callActivityLlm(endpoint, promptTemplate, target);
                     activityExtractMapper.updateActivityExtractSuccess(target, result);
+                    progressService.recordSuccess(runId, "ACTIVITY", target, result.itemCd(), result.activityName());
                     success++;
                     log.info("Subject extract record result | subject=ACTIVITY | status=PASS | rcCode={} | rcRfileNo={} | rcRitemNo={} | itemCd={} | value={} | reason={}",
                             target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(),
                             result.itemCd(), cut(result.activityName(), 100), cut(result.reason(), 200));
                 } catch (Exception e) {
                     activityExtractMapper.updateActivityExtractFail(target, cut(safeMessage(e), 500));
+                    progressService.recordFail(runId, "ACTIVITY", target, safeMessage(e));
                     fail++;
                     log.warn("Subject extract record result | subject=ACTIVITY | status=FAIL | rcCode={} | rcRfileNo={} | rcRitemNo={} | error={}",
                             target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(), cut(safeMessage(e), 4000));
@@ -515,6 +576,14 @@ public class SubjectExtractService {
 
     private SubjectExtractItemResult emptyResult(String subjectType, String endpoint) {
         return new SubjectExtractItemResult(subjectType, endpoint, 0, 0, 0);
+    }
+
+    private int totalSuccessCount(SubjectBatchResult result) {
+        return result.policy().successCount() + result.event().successCount() + result.activity().successCount();
+    }
+
+    private int totalFailCount(SubjectBatchResult result) {
+        return result.policy().failCount() + result.event().failCount() + result.activity().failCount();
     }
 
     private String textOrDefault(JsonNode root, String fieldName, String defaultValue) {
