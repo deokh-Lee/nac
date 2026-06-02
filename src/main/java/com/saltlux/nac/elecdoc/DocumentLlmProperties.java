@@ -14,6 +14,7 @@ public class DocumentLlmProperties {
     private String activityEndpoint;
     private String model = "local-model";
     private String defaultPromptName = "summary";
+    private String policyTestPromptName = "policy_extract_sample";
     private int perWorkerSize = 10;
     private int timeoutSeconds = 120;
     private int maxContentLength = 12000;
@@ -33,6 +34,8 @@ public class DocumentLlmProperties {
     public void setModel(String model) { this.model = model; }
     public String getDefaultPromptName() { return defaultPromptName; }
     public void setDefaultPromptName(String defaultPromptName) { this.defaultPromptName = defaultPromptName; }
+    public String getPolicyTestPromptName() { return policyTestPromptName; }
+    public void setPolicyTestPromptName(String policyTestPromptName) { this.policyTestPromptName = policyTestPromptName; }
     public int getPerWorkerSize() { return perWorkerSize; }
     public void setPerWorkerSize(int perWorkerSize) { this.perWorkerSize = perWorkerSize; }
     public int getTimeoutSeconds() { return timeoutSeconds; }

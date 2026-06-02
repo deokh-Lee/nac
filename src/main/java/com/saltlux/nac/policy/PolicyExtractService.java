@@ -37,6 +37,7 @@ public class PolicyExtractService {
 
     private static final Logger log = LoggerFactory.getLogger(PolicyExtractService.class);
     private static final String PROMPT_NAME = "policy_extract";
+    private static final List<String> SAMPLE_DEPARTMENTS = List.of("환경부", "복지부", "법제처");
 
     private final PolicyExtractMapper policyExtractMapper;
     private final SubjectPolicyMapper subjectPolicyMapper;
@@ -195,6 +196,48 @@ public class PolicyExtractService {
         }
     }
 
+    public PolicyExtractResult extractSample(String transferYear, String prodYear, Integer limit, Integer offset, Boolean retryFail) {
+        String targetYear = StringUtils.hasText(transferYear) ? transferYear : "2023";
+        String targetProdYear = StringUtils.hasText(prodYear) ? normalizeProductionYear(prodYear) : "2012";
+        int requestCount = limit == null || limit <= 0 ? 100 : limit;
+        int requestOffset = offset == null || offset < 0 ? 0 : offset;
+        boolean shouldRetryFail = Boolean.TRUE.equals(retryFail);
+        List<String> endpoints = resolvePolicyEndpoints();
+        int workerCount = endpoints.size();
+
+        List<PolicyExtractTarget> targets = policyExtractMapper.findPolicyExtractSampleTargets(
+                targetYear,
+                targetProdYear,
+                SAMPLE_DEPARTMENTS,
+                requestCount,
+                requestOffset,
+                shouldRetryFail
+        );
+        if (targets.isEmpty()) {
+            return new PolicyExtractResult(targetYear, targetProdYear, requestCount, requestOffset, shouldRetryFail, 0, workerCount, 0, 0);
+        }
+
+        PromptTemplate promptTemplate = promptTemplateRepository.get(properties.getPolicyTestPromptName());
+        ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
+        Long runId = null;
+        int successCount = 0;
+        int failCount = 0;
+        try {
+            runId = progressService.startRun("POLICY_SAMPLE", targetYear, targetProdYear, shouldRetryFail, requestCount, 1);
+            WorkerResult result = runWorkerBatch(executorService, endpoints, promptTemplate, targets, runId);
+            successCount = result.successCount();
+            failCount = result.failCount();
+            progressService.finishRun(runId, true, 1, targets.size(), successCount, failCount);
+            return new PolicyExtractResult(targetYear, targetProdYear, requestCount, requestOffset, shouldRetryFail,
+                    targets.size(), workerCount, successCount, failCount);
+        } catch (RuntimeException e) {
+            progressService.failRun(runId, 1, targets.size(), successCount, failCount, safeMessage(e));
+            throw e;
+        } finally {
+            executorService.shutdown();
+        }
+    }
+
     private WorkerResult runWorkerBatch(ExecutorService executorService,
                                         List<String> endpoints,
                                         PromptTemplate promptTemplate,
@@ -288,9 +331,11 @@ public class PolicyExtractService {
         variables.put("RC_CODE", nullToEmpty(target.getRcCode()));
         variables.put("RC_RFILE_NO", nullToEmpty(target.getRcRfileNo()));
         variables.put("RC_RITEM_NO", nullToEmpty(target.getRcRitemNo()));
+        variables.put("CLSS_ID", nullToEmpty(target.getClssId()));
         variables.put("BND_TTL", nullToEmpty(target.getBndTtl()));
         variables.put("JEMOK", nullToEmpty(target.getJemok()));
         variables.put("ALL_ORG_NM", nullToEmpty(target.getAllOrgNm()));
+        variables.put("DEPT_NM", nullToEmpty(target.getDeptNm()));
         variables.put("PRODREGDATE", nullToEmpty(target.getProdRegDate()));
         variables.put("PRODYEAR", nullToEmpty(target.getProdYear()));
         variables.put("candidate_policy_list_json", buildCandidatePolicyListJson(target));

@@ -37,4 +37,15 @@ public class PolicyExtractController {
     ) {
         return ResponseEntity.ok(policyExtractService.extractAll(transferYear, prodYear, limit, maxLoop, retryFail));
     }
+
+    @PostMapping("/sample")
+    public ResponseEntity<PolicyExtractResult> extractSample(
+            @RequestParam(required = false, defaultValue = "2023") String transferYear,
+            @RequestParam(required = false, defaultValue = "2012") String prodYear,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset,
+            @RequestParam(required = false, defaultValue = "false") Boolean retryFail
+    ) {
+        return ResponseEntity.ok(policyExtractService.extractSample(transferYear, prodYear, limit, offset, retryFail));
+    }
 }

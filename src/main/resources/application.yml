@@ -44,6 +44,7 @@ document:
       max-content-length: 12000
       max-summary-length: 500
       default-prompt-name: summary
+      policy-test-prompt-name: policy_extract_sample
 
 logging:
   pattern:

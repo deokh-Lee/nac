@@ -13,6 +13,13 @@ public interface PolicyExtractMapper {
                                                        @Param("offset") int offset,
                                                        @Param("retryFail") boolean retryFail);
 
+    List<PolicyExtractTarget> findPolicyExtractSampleTargets(@Param("transferYear") String transferYear,
+                                                             @Param("prodYear") String prodYear,
+                                                             @Param("departments") List<String> departments,
+                                                             @Param("limit") int limit,
+                                                             @Param("offset") int offset,
+                                                             @Param("retryFail") boolean retryFail);
+
     int updatePolicyExtractSuccess(@Param("target") PolicyExtractTarget target,
                                    @Param("result") PolicyExtractResponse result);
 
