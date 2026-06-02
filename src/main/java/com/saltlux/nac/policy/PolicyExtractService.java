@@ -76,8 +76,8 @@ public class PolicyExtractService {
         int requestCount = limit == null || limit <= 0 ? 100 : limit;
         int requestOffset = offset == null || offset < 0 ? 0 : offset;
         boolean shouldRetryFail = Boolean.TRUE.equals(retryFail);
-        String endpoint = resolveEndpoint(properties.getPolicyEndpoint(), 0);
-        int workerCount = calculateWorkerCount(requestCount);
+        List<String> endpoints = resolvePolicyEndpoints();
+        int workerCount = endpoints.size();
 
         List<PolicyExtractTarget> targets = policyExtractMapper.findPolicyExtractTargets(
                 targetYear,
@@ -97,7 +97,7 @@ public class PolicyExtractService {
         int failCount = 0;
         try {
             runId = progressService.startRun("POLICY_BATCH", targetYear, targetProdYear, shouldRetryFail, requestCount, 1);
-            WorkerResult result = runWorkerBatch(executorService, workerCount, endpoint, promptTemplate, targets, runId);
+            WorkerResult result = runWorkerBatch(executorService, endpoints, promptTemplate, targets, runId);
             successCount = result.successCount();
             failCount = result.failCount();
             progressService.finishRun(runId, true, 1, targets.size(), successCount, failCount);
@@ -128,8 +128,8 @@ public class PolicyExtractService {
         int totalSuccessCount = 0;
         int totalFailCount = 0;
         boolean completed = false;
-        String endpoint = resolveEndpoint(properties.getPolicyEndpoint(), 0);
-        int workerCount = calculateWorkerCount(batchSize);
+        List<String> endpoints = resolvePolicyEndpoints();
+        int workerCount = endpoints.size();
         PromptTemplate promptTemplate = promptTemplateRepository.get(PROMPT_NAME);
         ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
         Long runId = null;
@@ -147,7 +147,7 @@ public class PolicyExtractService {
                 );
                 WorkerResult result = targets.isEmpty()
                         ? new WorkerResult(0, 0)
-                        : runWorkerBatch(executorService, workerCount, endpoint, promptTemplate, targets, runId);
+                        : runWorkerBatch(executorService, endpoints, promptTemplate, targets, runId);
                 totalTargetCount += targets.size();
                 totalSuccessCount += result.successCount();
                 totalFailCount += result.failCount();
@@ -196,11 +196,11 @@ public class PolicyExtractService {
     }
 
     private WorkerResult runWorkerBatch(ExecutorService executorService,
-                                        int workerCount,
-                                        String endpoint,
+                                        List<String> endpoints,
                                         PromptTemplate promptTemplate,
                                         List<PolicyExtractTarget> targets,
                                         Long runId) {
+        int workerCount = endpoints.size();
         List<List<PolicyExtractTarget>> workerBuckets = distributeRoundRobin(targets, workerCount);
         List<Future<WorkerResult>> futures = new ArrayList<>();
         for (int i = 0; i < workerCount; i++) {
@@ -208,6 +208,7 @@ public class PolicyExtractService {
             if (workerTargets.isEmpty()) {
                 continue;
             }
+            String endpoint = endpoints.get(i);
             log.info("Policy extract worker assigned | workerNo={} | endpoint={} | size={}",
                     i + 1, endpoint, workerTargets.size());
             futures.add(executorService.submit(createWorkerTask(i + 1, endpoint, promptTemplate, workerTargets, runId)));
@@ -330,11 +331,6 @@ public class PolicyExtractService {
         }
     }
 
-    private int calculateWorkerCount(int requestCount) {
-        int perWorkerSize = Math.max(1, properties.getPerWorkerSize());
-        return Math.max(1, (int) Math.ceil((double) Math.max(1, requestCount) / perWorkerSize));
-    }
-
     @SuppressWarnings("unchecked")
     private String parseContent(Map body) {
         if (body == null) {
@@ -449,6 +445,26 @@ public class PolicyExtractService {
         }
         int index = Math.min(Math.max(fallbackIndex, 0), endpoints.size() - 1);
         return endpoints.get(index);
+    }
+
+    private List<String> resolvePolicyEndpoints() {
+        if (!properties.isPolicyUseEndpoints()) {
+            return List.of(resolveEndpoint(properties.getPolicyEndpoint(), 0));
+        }
+
+        List<String> configuredEndpoints = properties.getEndpoints();
+        List<String> endpoints = new ArrayList<>();
+        if (configuredEndpoints != null) {
+            for (String endpoint : configuredEndpoints) {
+                if (StringUtils.hasText(endpoint)) {
+                    endpoints.add(endpoint);
+                }
+            }
+        }
+        if (!endpoints.isEmpty()) {
+            return endpoints;
+        }
+        return List.of(resolveEndpoint(properties.getPolicyEndpoint(), 0));
     }
 
     private String cut(String value, int maxLength) {

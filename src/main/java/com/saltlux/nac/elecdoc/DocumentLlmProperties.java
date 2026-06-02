@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class DocumentLlmProperties {
 
     private List<String> endpoints = new ArrayList<>();
+    private boolean policyUseEndpoints = false;
     private String policyEndpoint;
     private String eventEndpoint;
     private String activityEndpoint;
@@ -20,6 +21,8 @@ public class DocumentLlmProperties {
 
     public List<String> getEndpoints() { return endpoints; }
     public void setEndpoints(List<String> endpoints) { this.endpoints = endpoints; }
+    public boolean isPolicyUseEndpoints() { return policyUseEndpoints; }
+    public void setPolicyUseEndpoints(boolean policyUseEndpoints) { this.policyUseEndpoints = policyUseEndpoints; }
     public String getPolicyEndpoint() { return policyEndpoint; }
     public void setPolicyEndpoint(String policyEndpoint) { this.policyEndpoint = policyEndpoint; }
     public String getEventEndpoint() { return eventEndpoint; }

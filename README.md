@@ -126,7 +126,7 @@ curl -X POST "http://localhost:8081/api/electronic-documents/llm-summary?transfe
 
 ## 정책명 추출 API
 
-`policy_extract.txt` 프롬프트와 `TB_SUBJECT_ITEM_CODE`의 정책 후보 목록을 사용해 `CN_RITEM` 기록물 메타데이터에 정책명을 매핑합니다. 한 번에 기본 100건을 조회하고, `document.extract.llm.endpoints`에 설정된 LLM endpoint로 round-robin 분산 호출합니다.
+`policy_extract.txt` 프롬프트와 `TB_SUBJECT_ITEM_CODE`의 정책 후보 목록을 사용해 `CN_RITEM` 기록물 메타데이터에 정책명을 매핑합니다. 한 번에 기본 100건을 조회합니다. `document.extract.llm.policy-use-endpoints=false`이면 `policy-endpoint` 하나만 호출하고, `true`이면 `endpoints`에 설정된 LLM endpoint로 round-robin 분산 호출합니다.
 
 ```bash
 curl -X POST "http://localhost:8081/api/electronic-documents/policy-extract?transferYear=2023&limit=100&offset=0"

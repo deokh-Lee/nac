@@ -34,6 +34,7 @@ document:
         - http://192.168.250.25:13006/v1/chat/completions
         - http://192.168.250.25:15006/v1/chat/completions
         - http://192.168.250.25:16006/v1/chat/completions
+      policy-use-endpoints: true
       policy-endpoint: http://192.168.250.25:13006/v1/chat/completions
       event-endpoint: http://192.168.250.25:15006/v1/chat/completions
       activity-endpoint: http://192.168.250.25:16006/v1/chat/completions
