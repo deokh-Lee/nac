@@ -256,6 +256,7 @@
             #{department}
         </foreach>
           AND A.POLICY_CD IS NULL
+          AND (A.LLM_POLICY_STATUS IS NULL OR A.LLM_POLICY_STATUS != 'PASS')
         ORDER BY A.RC_RFILE_NO, A.RC_RITEM_NO
         LIMIT #{limit} OFFSET #{offset}
     </select>

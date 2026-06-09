@@ -28,7 +28,7 @@ public class PolicyExtractController {
         return ResponseEntity.ok(policyExtractService.findDepartmentTargets(transferYear, prodYear, limit, offset));
     }
 
-    @GetMapping("/departments/items/targets")
+    @GetMapping({"/departments/items/targets", "/departments/item/targets"})
     public ResponseEntity<List<PolicyExtractTarget>> findDepartmentItemCompareTargets(
             @RequestParam(required = false, defaultValue = "2023") String transferYear,
             @RequestParam(required = false, defaultValue = "2012") String prodYear,
@@ -48,6 +48,16 @@ public class PolicyExtractController {
         return ResponseEntity.ok(policyExtractService.extractDepartmentBatch(transferYear, prodYear, limit, offset));
     }
 
+    @PostMapping("/departments/all")
+    public ResponseEntity<PolicyExtractAllResult> extractDepartmentAll(
+            @RequestParam(required = false, defaultValue = "2023") String transferYear,
+            @RequestParam(required = false, defaultValue = "2012") String prodYear,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer maxLoop
+    ) {
+        return ResponseEntity.ok(policyExtractService.extractDepartmentAll(transferYear, prodYear, limit, maxLoop));
+    }
+
     @PostMapping("/departments/file")
     public ResponseEntity<PolicyExtractResult> extractDepartmentFileBatch(
             @RequestParam(required = false, defaultValue = "2023") String transferYear,
@@ -58,7 +68,17 @@ public class PolicyExtractController {
         return ResponseEntity.ok(policyExtractService.extractDepartmentFileBatch(transferYear, prodYear, limit, offset));
     }
 
-    @PostMapping("/departments/items")
+    @PostMapping("/departments/file/all")
+    public ResponseEntity<PolicyExtractAllResult> extractDepartmentFileAll(
+            @RequestParam(required = false, defaultValue = "2023") String transferYear,
+            @RequestParam(required = false, defaultValue = "2012") String prodYear,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer maxLoop
+    ) {
+        return ResponseEntity.ok(policyExtractService.extractDepartmentFileAll(transferYear, prodYear, limit, maxLoop));
+    }
+
+    @PostMapping({"/departments/items", "/departments/item"})
     public ResponseEntity<PolicyExtractResult> extractDepartmentItemCompareBatch(
             @RequestParam(required = false, defaultValue = "2023") String transferYear,
             @RequestParam(required = false, defaultValue = "2012") String prodYear,
@@ -66,6 +86,16 @@ public class PolicyExtractController {
             @RequestParam(required = false) Integer offset
     ) {
         return ResponseEntity.ok(policyExtractService.extractDepartmentItemCompareBatch(transferYear, prodYear, limit, offset));
+    }
+
+    @PostMapping({"/departments/items/all", "/departments/item/all"})
+    public ResponseEntity<PolicyExtractAllResult> extractDepartmentItemCompareAll(
+            @RequestParam(required = false, defaultValue = "2023") String transferYear,
+            @RequestParam(required = false, defaultValue = "2012") String prodYear,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer maxLoop
+    ) {
+        return ResponseEntity.ok(policyExtractService.extractDepartmentItemCompareAll(transferYear, prodYear, limit, maxLoop));
     }
 
     @PostMapping

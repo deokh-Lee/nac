@@ -407,6 +407,226 @@ public class PolicyExtractService {
         }
     }
 
+    public PolicyExtractAllResult extractDepartmentFileAll(String transferYear, String prodYear, Integer limit, Integer maxLoop) {
+        String targetYear = StringUtils.hasText(transferYear) ? transferYear : "2023";
+        String targetProdYear = StringUtils.hasText(prodYear) ? normalizeProductionYear(prodYear) : "2012";
+        int batchSize = limit == null || limit <= 0 ? 100 : limit;
+        int loopLimit = maxLoop == null || maxLoop <= 0 ? 10_000 : maxLoop;
+        SubjectExtractRunRegistry.RunKey runKey = runRegistry.acquire(
+                "policy-extract/departments/file/all",
+                SubjectExtractRunRegistry.POLICY,
+                targetYear,
+                targetProdYear
+        );
+        List<String> endpoints = resolvePolicyEndpoints();
+        int workerCount = endpoints.size();
+        PromptTemplate promptTemplate = promptTemplateRepository.get(DEPARTMENT_PROMPT_NAME);
+        ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
+        Long runId = null;
+        int loopCount = 0;
+        int totalTargetCount = 0;
+        int totalSuccessCount = 0;
+        int totalFailCount = 0;
+        boolean completed = false;
+
+        try {
+            runId = progressService.startRun("POLICY_DEPT_FILE_ALL", targetYear, targetProdYear, false, batchSize, loopLimit);
+            while (loopCount < loopLimit) {
+                int requestOffset = loopCount * batchSize;
+                loopCount++;
+                List<PolicyExtractTarget> fileTargets = policyExtractMapper.findPolicyDepartmentFileTargets(
+                        targetYear,
+                        targetProdYear,
+                        POLICY_DEPARTMENTS,
+                        batchSize,
+                        requestOffset
+                );
+                WorkerResult result = fileTargets.isEmpty()
+                        ? new WorkerResult(0, 0)
+                        : runDepartmentFileWorkerBatch(executorService, endpoints, promptTemplate, fileTargets, runId, targetYear, targetProdYear);
+                totalTargetCount += fileTargets.size();
+                totalSuccessCount += result.successCount();
+                totalFailCount += result.failCount();
+
+                log.info("policy-extract/departments/file/all loop#{} | year={} | prodYear={} | batchSize={} | offset={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
+                        loopCount, targetYear, targetProdYear, batchSize, requestOffset, fileTargets.size(),
+                        result.successCount(), result.failCount(), totalTargetCount, totalSuccessCount, totalFailCount);
+                progressService.updateRunProgress(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
+
+                if (fileTargets.isEmpty()) {
+                    completed = true;
+                    break;
+                }
+            }
+
+            progressService.finishRun(runId, completed, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
+            return new PolicyExtractAllResult(targetYear, targetProdYear, batchSize, loopLimit, false,
+                    loopCount, totalTargetCount, totalSuccessCount, totalFailCount, completed);
+        } catch (RuntimeException e) {
+            progressService.failRun(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount, safeMessage(e));
+            throw e;
+        } finally {
+            executorService.shutdown();
+            runRegistry.release(runKey);
+        }
+    }
+
+    public PolicyExtractAllResult extractDepartmentItemCompareAll(String transferYear, String prodYear, Integer limit, Integer maxLoop) {
+        String targetYear = StringUtils.hasText(transferYear) ? transferYear : "2023";
+        String targetProdYear = StringUtils.hasText(prodYear) ? normalizeProductionYear(prodYear) : "2012";
+        int batchSize = limit == null || limit <= 0 ? 100 : limit;
+        int loopLimit = maxLoop == null || maxLoop <= 0 ? 10_000 : maxLoop;
+        SubjectExtractRunRegistry.RunKey runKey = runRegistry.acquire(
+                "policy-extract/departments/items/all",
+                SubjectExtractRunRegistry.POLICY,
+                targetYear,
+                targetProdYear
+        );
+        List<String> endpoints = resolvePolicyEndpoints();
+        int workerCount = endpoints.size();
+        PromptTemplate promptTemplate = promptTemplateRepository.get(DEPARTMENT_PROMPT_NAME);
+        ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
+        Long runId = null;
+        int loopCount = 0;
+        int totalTargetCount = 0;
+        int totalSuccessCount = 0;
+        int totalFailCount = 0;
+        boolean completed = false;
+
+        try {
+            runId = progressService.startRun("POLICY_DEPT_ITEM_COMPARE_ALL", targetYear, targetProdYear, false, batchSize, loopLimit);
+            while (loopCount < loopLimit) {
+                loopCount++;
+                List<PolicyExtractTarget> itemTargets = policyExtractMapper.findPolicyDepartmentItemCompareTargets(
+                        targetYear,
+                        targetProdYear,
+                        POLICY_DEPARTMENTS,
+                        batchSize,
+                        0
+                );
+                WorkerResult result = itemTargets.isEmpty()
+                        ? new WorkerResult(0, 0)
+                        : runDepartmentWorkerBatch(executorService, endpoints, promptTemplate, itemTargets, runId);
+                totalTargetCount += itemTargets.size();
+                totalSuccessCount += result.successCount();
+                totalFailCount += result.failCount();
+
+                log.info("policy-extract/departments/items/all loop#{} | year={} | prodYear={} | batchSize={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
+                        loopCount, targetYear, targetProdYear, batchSize, itemTargets.size(),
+                        result.successCount(), result.failCount(), totalTargetCount, totalSuccessCount, totalFailCount);
+                progressService.updateRunProgress(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
+
+                if (itemTargets.isEmpty()) {
+                    completed = true;
+                    break;
+                }
+            }
+
+            progressService.finishRun(runId, completed, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
+            return new PolicyExtractAllResult(targetYear, targetProdYear, batchSize, loopLimit, false,
+                    loopCount, totalTargetCount, totalSuccessCount, totalFailCount, completed);
+        } catch (RuntimeException e) {
+            progressService.failRun(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount, safeMessage(e));
+            throw e;
+        } finally {
+            executorService.shutdown();
+            runRegistry.release(runKey);
+        }
+    }
+
+    public PolicyExtractAllResult extractDepartmentAll(String transferYear, String prodYear, Integer limit, Integer maxLoop) {
+        String targetYear = StringUtils.hasText(transferYear) ? transferYear : "2023";
+        String targetProdYear = StringUtils.hasText(prodYear) ? normalizeProductionYear(prodYear) : "2012";
+        int batchSize = limit == null || limit <= 0 ? 100 : limit;
+        int loopLimit = maxLoop == null || maxLoop <= 0 ? 10_000 : maxLoop;
+        SubjectExtractRunRegistry.RunKey runKey = runRegistry.acquire(
+                "policy-extract/departments/all",
+                SubjectExtractRunRegistry.POLICY,
+                targetYear,
+                targetProdYear
+        );
+        List<String> endpoints = resolvePolicyEndpoints();
+        int workerCount = endpoints.size();
+        PromptTemplate promptTemplate = promptTemplateRepository.get(DEPARTMENT_PROMPT_NAME);
+        ExecutorService executorService = Executors.newFixedThreadPool(workerCount);
+        Long runId = null;
+        int loopCount = 0;
+        int totalTargetCount = 0;
+        int totalSuccessCount = 0;
+        int totalFailCount = 0;
+        boolean fileCompleted = false;
+        boolean itemCompleted = false;
+
+        try {
+            runId = progressService.startRun("POLICY_DEPT_ALL", targetYear, targetProdYear, false, batchSize, loopLimit);
+            while (loopCount < loopLimit) {
+                int requestOffset = loopCount * batchSize;
+                loopCount++;
+                List<PolicyExtractTarget> fileTargets = policyExtractMapper.findPolicyDepartmentFileTargets(
+                        targetYear,
+                        targetProdYear,
+                        POLICY_DEPARTMENTS,
+                        batchSize,
+                        requestOffset
+                );
+                WorkerResult result = fileTargets.isEmpty()
+                        ? new WorkerResult(0, 0)
+                        : runDepartmentFileWorkerBatch(executorService, endpoints, promptTemplate, fileTargets, runId, targetYear, targetProdYear);
+                totalTargetCount += fileTargets.size();
+                totalSuccessCount += result.successCount();
+                totalFailCount += result.failCount();
+
+                log.info("policy-extract/departments/all file loop#{} | year={} | prodYear={} | batchSize={} | offset={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
+                        loopCount, targetYear, targetProdYear, batchSize, requestOffset, fileTargets.size(),
+                        result.successCount(), result.failCount(), totalTargetCount, totalSuccessCount, totalFailCount);
+                progressService.updateRunProgress(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
+
+                if (fileTargets.isEmpty()) {
+                    fileCompleted = true;
+                    break;
+                }
+            }
+
+            while (fileCompleted && loopCount < loopLimit) {
+                loopCount++;
+                List<PolicyExtractTarget> itemTargets = policyExtractMapper.findPolicyDepartmentItemCompareTargets(
+                        targetYear,
+                        targetProdYear,
+                        POLICY_DEPARTMENTS,
+                        batchSize,
+                        0
+                );
+                WorkerResult result = itemTargets.isEmpty()
+                        ? new WorkerResult(0, 0)
+                        : runDepartmentWorkerBatch(executorService, endpoints, promptTemplate, itemTargets, runId);
+                totalTargetCount += itemTargets.size();
+                totalSuccessCount += result.successCount();
+                totalFailCount += result.failCount();
+
+                log.info("policy-extract/departments/all item loop#{} | year={} | prodYear={} | batchSize={} | target={} | success={} | fail={} | totalTarget={} | totalSuccess={} | totalFail={}",
+                        loopCount, targetYear, targetProdYear, batchSize, itemTargets.size(),
+                        result.successCount(), result.failCount(), totalTargetCount, totalSuccessCount, totalFailCount);
+                progressService.updateRunProgress(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
+
+                if (itemTargets.isEmpty()) {
+                    itemCompleted = true;
+                    break;
+                }
+            }
+
+            boolean completed = fileCompleted && itemCompleted;
+            progressService.finishRun(runId, completed, loopCount, totalTargetCount, totalSuccessCount, totalFailCount);
+            return new PolicyExtractAllResult(targetYear, targetProdYear, batchSize, loopLimit, false,
+                    loopCount, totalTargetCount, totalSuccessCount, totalFailCount, completed);
+        } catch (RuntimeException e) {
+            progressService.failRun(runId, loopCount, totalTargetCount, totalSuccessCount, totalFailCount, safeMessage(e));
+            throw e;
+        } finally {
+            executorService.shutdown();
+            runRegistry.release(runKey);
+        }
+    }
+
     private WorkerResult runWorkerBatch(ExecutorService executorService,
                                         List<String> endpoints,
                                         PromptTemplate promptTemplate,
@@ -618,8 +838,9 @@ public class PolicyExtractService {
                     PolicyExtractResponse result = llmResult.policy();
                     progressService.recordPolicyMappingSuccess(runId, "POLICY_DEPT", target, result.itemCd(), result.policy(), llmResult.mappingResult());
                     if (!isDeterminedPolicy(result)) {
+                        policyExtractMapper.updatePolicyExtractSuccess(target, result);
                         success++;
-                        log.info("Policy department extract record result | status=PASS_LOG_ONLY | workerNo={} | rcCode={} | rcRfileNo={} | rcRitemNo={} | itemCd={} | value={} | reason={}",
+                        log.info("Policy department extract record result | status=PASS_NO_POLICY | workerNo={} | rcCode={} | rcRfileNo={} | rcRitemNo={} | itemCd={} | value={} | reason={}",
                                 workerNo, target.getRcCode(), target.getRcRfileNo(), target.getRcRitemNo(),
                                 result.itemCd(), cut(result.policy(), 100), cut(result.reason(), 200));
                         continue;

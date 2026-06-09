@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.saltlux.nac.chunk.RecordContentChunkMapper">
+
+    <resultMap id="ChunkSourceDocumentResultMap" type="com.saltlux.nac.chunk.ChunkSourceDocument">
+        <result property="extractIdx" column="EXTRACT_IDX"/>
+        <result property="fileName" column="FILE_NAME"/>
+        <result property="zipEntryFileName" column="ZIP_ENTRY_FILE_NAME"/>
+        <result property="rcRfileNo" column="RC_RFILE_NO"/>
+        <result property="rcRitemNo" column="RC_RITEM_NO"/>
+        <result property="zipSeq" column="ZIP_SEQ"/>
+        <result property="fileType" column="FILE_TYPE"/>
+        <result property="fileGubun" column="FILE_GUBUN"/>
+        <result property="indexingContents" column="INDEXING_CONTENTS"/>
+        <result property="hwpSubTitle" column="HWP_SUB_TITLE"/>
+        <result property="dataYear" column="DATA_YEAR"/>
+    </resultMap>
+
+    <select id="findChunkTargets" resultMap="ChunkSourceDocumentResultMap">
+        SELECT
+            E.IDX AS EXTRACT_IDX,
+            E.FILE_NAME,
+            E.ZIP_ENTRY_FILE_NAME,
+            E.RC_RFILE_NO,
+            E.RC_RITEM_NO,
+            E.ZIP_SEQ,
+            E.FILE_TYPE,
+            E.FILE_GUBUN,
+            E.INDEXING_CONTENTS,
+            E.HWP_SUB_TITLE,
+            E.DATA_YEAR
+        FROM EXTRACT_ELEC_DOC E
+        WHERE E.EXTRACT_STATUS = 'PASS'
+          AND E.INDEXING_CONTENTS IS NOT NULL
+          AND TRIM(E.INDEXING_CONTENTS) != ''
+          <if test="dataYear != null">
+              AND E.DATA_YEAR = #{dataYear}
+          </if>
+          <if test="transferYear != null and transferYear != ''">
+              AND EXISTS (
+                  SELECT 1
+                  FROM CN_ELEC_DOC C
+                  WHERE C.TRANSFERYEAR = #{transferYear}
+                    AND C.RC_RFILE_NO = E.RC_RFILE_NO
+                    AND C.RC_RITEM_NO = E.RC_RITEM_NO
+              )
+          </if>
+          <if test="!recreate">
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM TB_RECORD_CONTENT_CHUNK C
+                  WHERE C.EXTRACT_IDX = E.IDX
+              )
+          </if>
+        ORDER BY E.RC_RFILE_NO, E.RC_RITEM_NO, E.FILE_NAME, E.ZIP_SEQ
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <delete id="deleteChunksForDocument">
+        DELETE FROM TB_RECORD_CONTENT_CHUNK
+        WHERE EXTRACT_IDX = #{extractIdx}
+    </delete>
+
+    <insert id="insertChunk" parameterType="com.saltlux.nac.chunk.RecordContentChunk">
+        INSERT INTO TB_RECORD_CONTENT_CHUNK (
+            EXTRACT_IDX,
+            RC_RFILE_NO,
+            RC_RITEM_NO,
+            FILE_NAME,
+            ZIP_ENTRY_FILE_NAME,
+            ZIP_SEQ,
+            CHUNK_SEQ,
+            DOC_ROLE,
+            DOC_TYPE,
+            SECTION_PATH,
+            LAW_CHAPTER,
+            LAW_SECTION,
+            LAW_ARTICLE_NO,
+            LAW_ARTICLE_TITLE,
+            LAW_ARTICLE_CONTENT,
+            CHUNK_TEXT,
+            START_OFFSET,
+            END_OFFSET,
+            CHAR_COUNT,
+            TOKEN_COUNT,
+            CHUNK_STATUS,
+            CREATE_DATE,
+            UPDATE_DATE
+        ) VALUES (
+            #{extractIdx},
+            #{rcRfileNo},
+            #{rcRitemNo},
+            #{fileName},
+            #{zipEntryFileName},
+            #{zipSeq},
+            #{chunkSeq},
+            #{docRole},
+            #{docType},
+            #{sectionPath},
+            #{lawChapter},
+            #{lawSection},
+            #{lawArticleNo},
+            #{lawArticleTitle},
+            #{lawArticleContent},
+            #{chunkText},
+            #{startOffset},
+            #{endOffset},
+            #{charCount},
+            #{tokenCount},
+            #{chunkStatus},
+            NOW(),
+            NOW()
+        )
+    </insert>
+
+</mapper>
