@@ -10,4 +10,6 @@ public interface SubjectPolicyMapper {
     List<SubjectPolicyCandidate> findSubjectCandidates(@Param("clsCd") String clsCd,
                                                        @Param("productionDate") String productionDate,
                                                        @Param("productionYear") String productionYear);
+
+    List<PolicyDetailMappingDictionary> findPolicyDetailMappingDictionary(@Param("leadAgencyPrefix") String leadAgencyPrefix);
 }

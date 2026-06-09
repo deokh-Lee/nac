@@ -15,6 +15,20 @@
         <result property="description" column="DESCRIPTION"/>
     </resultMap>
 
+    <resultMap id="PolicyDetailMappingDictionaryResultMap" type="com.saltlux.nac.subject.PolicyDetailMappingDictionary">
+        <result property="govTaskNo" column="GOV_TASK_NO"/>
+        <result property="govTaskNm" column="GOV_TASK_NM"/>
+        <result property="detailTaskCd" column="DETAIL_TASK_CD"/>
+        <result property="detailTaskNm" column="DETAIL_TASK_NM"/>
+        <result property="directMappingTerms" column="DIRECT_MAPPING_TERMS"/>
+        <result property="conditionalMappingTerms" column="CONDITIONAL_MAPPING_TERMS"/>
+        <result property="expandCandidateTerms" column="EXPAND_CANDIDATE_TERMS"/>
+        <result property="requiredCombineTerms" column="REQUIRED_COMBINE_TERMS"/>
+        <result property="blockTerms" column="BLOCK_TERMS"/>
+        <result property="note" column="NOTE"/>
+        <result property="leadAgency" column="LEAD_AGENCY"/>
+    </resultMap>
+
     <select id="findSubjectCandidates" resultMap="SubjectPolicyCandidateResultMap">
         SELECT
             ITEM_CD,
@@ -47,6 +61,26 @@
               </otherwise>
           </choose>
         ORDER BY PREV_GOV_CD, SUB_CLS_CD, TOPIC_CD, ITEM_CD
+    </select>
+
+    <select id="findPolicyDetailMappingDictionary" resultMap="PolicyDetailMappingDictionaryResultMap">
+        SELECT
+            GOV_TASK_NO,
+            GOV_TASK_NM,
+            DETAIL_TASK_CD,
+            DETAIL_TASK_NM,
+            DIRECT_MAPPING_TERMS,
+            CONDITIONAL_MAPPING_TERMS,
+            EXPAND_CANDIDATE_TERMS,
+            REQUIRED_COMBINE_TERMS,
+            BLOCK_TERMS,
+            NOTE,
+            LEAD_AGENCY
+        FROM TB_SUBJECT_ITEM_CODE
+        WHERE CLS_CD = 'POLICY'
+          AND PREV_GOV_CD = 'LMB'
+          AND LEAD_AGENCY LIKE CONCAT(#{leadAgencyPrefix}, '%')
+        ORDER BY GOV_TASK_NO, DETAIL_TASK_CD
     </select>
 
 </mapper>

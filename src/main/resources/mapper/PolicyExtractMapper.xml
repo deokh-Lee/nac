@@ -16,6 +16,10 @@
         <result property="deptNm" column="DEPT_NM"/>
         <result property="prodRegDate" column="PRODREGDATE"/>
         <result property="prodYear" column="PRODYEAR"/>
+        <result property="policyCd" column="POLICY_CD"/>
+        <result property="llmPolicyStatus" column="LLM_POLICY_STATUS"/>
+        <result property="llmPolicyErrMsg" column="LLM_POLICY_ERR_MSG"/>
+        <result property="llmPolicyUpdt" column="LLM_POLICY_UPDT"/>
     </resultMap>
 
     <select id="findPolicyExtractTargets" resultMap="PolicyExtractTargetResultMap">
@@ -98,6 +102,164 @@
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
+    <select id="findPolicyDepartmentTargets" resultMap="PolicyExtractTargetResultMap">
+        SELECT
+            A.RC_CODE,
+            A.RC_RFILE_NO,
+            A.RC_RITEM_NO,
+            A.BND_TTL,
+            A.JEMOK,
+            A.ALL_ORG_NM,
+            SUBSTRING_INDEX(A.ALL_ORG_NM, ' ', 1) AS DEPT_NM,
+            A.PRODREGDATE,
+            #{prodYear} AS PRODYEAR
+        FROM CN_RITEM A
+        JOIN (
+            SELECT
+                RC_RFILE_NO,
+                RC_RITEM_NO
+            FROM CN_ELEC_DOC
+            WHERE TRANSFERYEAR = #{transferYear}
+              AND PRODYEAR = #{prodYear}
+            GROUP BY RC_RFILE_NO, RC_RITEM_NO
+        ) B
+          ON A.RC_RFILE_NO = B.RC_RFILE_NO
+         AND A.RC_RITEM_NO = B.RC_RITEM_NO
+        WHERE SUBSTRING_INDEX(A.ALL_ORG_NM, ' ', 1) IN
+        <foreach collection="departments" item="department" open="(" separator="," close=")">
+            #{department}
+        </foreach>
+        ORDER BY A.RC_RFILE_NO, A.RC_RITEM_NO
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findPolicyDepartmentFileTargets" resultMap="PolicyExtractTargetResultMap">
+        SELECT
+            MIN(A.RC_CODE) AS RC_CODE,
+            A.RC_RFILE_NO,
+            MIN(A.BND_TTL) AS BND_TTL,
+            MIN(A.ALL_ORG_NM) AS ALL_ORG_NM,
+            SUBSTRING_INDEX(MIN(A.ALL_ORG_NM), ' ', 1) AS DEPT_NM,
+            #{prodYear} AS PRODYEAR
+        FROM CN_RITEM A
+        JOIN (
+            SELECT
+                RC_RFILE_NO
+            FROM CN_ELEC_DOC
+            WHERE TRANSFERYEAR = #{transferYear}
+              AND PRODYEAR = #{prodYear}
+            GROUP BY RC_RFILE_NO
+        ) B
+          ON A.RC_RFILE_NO = B.RC_RFILE_NO
+        WHERE SUBSTRING_INDEX(A.ALL_ORG_NM, ' ', 1) IN
+        <foreach collection="departments" item="department" open="(" separator="," close=")">
+            #{department}
+        </foreach>
+        GROUP BY A.RC_RFILE_NO
+        ORDER BY A.RC_RFILE_NO
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findPolicyDepartmentFileItemTargets" resultMap="PolicyExtractTargetResultMap">
+        SELECT
+            A.RC_CODE,
+            A.RC_RFILE_NO,
+            A.RC_RITEM_NO,
+            A.BND_TTL,
+            A.JEMOK,
+            A.ALL_ORG_NM,
+            SUBSTRING_INDEX(A.ALL_ORG_NM, ' ', 1) AS DEPT_NM,
+            A.PRODREGDATE,
+            B.PRODYEAR
+        FROM CN_RITEM A
+        JOIN (
+            SELECT
+                RC_RFILE_NO,
+                PRODYEAR
+            FROM CN_ELEC_DOC
+            WHERE TRANSFERYEAR = #{transferYear}
+              AND PRODYEAR = #{prodYear}
+              AND RC_RFILE_NO = #{rcRfileNo}
+            GROUP BY RC_RFILE_NO, PRODYEAR
+        ) B
+          ON A.RC_RFILE_NO = B.RC_RFILE_NO
+        WHERE A.RC_RFILE_NO = #{rcRfileNo}
+        ORDER BY A.RC_RFILE_NO, A.RC_RITEM_NO
+    </select>
+
+    <select id="findPolicyDepartmentUnmappedTargets" resultMap="PolicyExtractTargetResultMap">
+        SELECT
+            A.RC_CODE,
+            A.RC_RFILE_NO,
+            A.RC_RITEM_NO,
+            A.BND_TTL,
+            A.JEMOK,
+            A.ALL_ORG_NM,
+            SUBSTRING_INDEX(A.ALL_ORG_NM, ' ', 1) AS DEPT_NM,
+            A.PRODREGDATE,
+            #{prodYear} AS PRODYEAR
+        FROM CN_RITEM A
+        JOIN (
+            SELECT
+                RC_RFILE_NO,
+                RC_RITEM_NO
+            FROM CN_ELEC_DOC
+            WHERE TRANSFERYEAR = #{transferYear}
+              AND PRODYEAR = #{prodYear}
+            GROUP BY RC_RFILE_NO, RC_RITEM_NO
+        ) B
+          ON A.RC_RFILE_NO = B.RC_RFILE_NO
+         AND A.RC_RITEM_NO = B.RC_RITEM_NO
+        WHERE SUBSTRING_INDEX(A.ALL_ORG_NM, ' ', 1) IN
+        <foreach collection="departments" item="department" open="(" separator="," close=")">
+            #{department}
+        </foreach>
+          AND (
+              A.POLICY_CD IS NULL
+              OR A.POLICY_CD = ''
+              OR A.POLICY_NM IS NULL
+              OR A.POLICY_NM = '해당없음'
+          )
+        ORDER BY A.RC_RFILE_NO, A.RC_RITEM_NO
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findPolicyDepartmentItemCompareTargets" resultMap="PolicyExtractTargetResultMap">
+        SELECT
+            A.RC_CODE,
+            A.RC_RFILE_NO,
+            A.RC_RITEM_NO,
+            A.BND_TTL,
+            A.JEMOK,
+            A.ALL_ORG_NM,
+            SUBSTRING_INDEX(A.ALL_ORG_NM, ' ', 1) AS DEPT_NM,
+            A.PRODREGDATE,
+            A.PRODYEAR,
+            A.POLICY_CD,
+            A.LLM_POLICY_STATUS,
+            A.LLM_POLICY_ERR_MSG,
+            A.LLM_POLICY_UPDT
+        FROM CN_RITEM A
+        JOIN (
+            SELECT
+                RC_RFILE_NO,
+                RC_RITEM_NO
+            FROM CN_ELEC_DOC
+            WHERE TRANSFERYEAR = #{transferYear}
+              AND PRODYEAR = #{prodYear}
+            GROUP BY RC_RFILE_NO, RC_RITEM_NO
+        ) B
+          ON A.RC_RFILE_NO = B.RC_RFILE_NO
+         AND A.RC_RITEM_NO = B.RC_RITEM_NO
+        WHERE SUBSTRING_INDEX(A.ALL_ORG_NM, ' ', 1) IN
+        <foreach collection="departments" item="department" open="(" separator="," close=")">
+            #{department}
+        </foreach>
+          AND A.POLICY_CD IS NULL
+        ORDER BY A.RC_RFILE_NO, A.RC_RITEM_NO
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
     <update id="updatePolicyExtractSuccess">
         UPDATE CN_RITEM
         SET POLICY_CD = #{result.itemCd},
@@ -111,6 +273,16 @@
         WHERE RC_CODE = #{target.rcCode}
           AND RC_RFILE_NO = #{target.rcRfileNo}
           AND RC_RITEM_NO = #{target.rcRitemNo}
+    </update>
+
+    <update id="updatePolicyDepartmentFileSuccess">
+        UPDATE CN_RITEM
+        SET POLICY_CD = #{result.itemCd},
+            POLICY_NM = #{result.policy},
+            LLM_POLICY_STATUS = 'PASS',
+            LLM_POLICY_ERR_MSG = NULL,
+            LLM_POLICY_UPDT = CURRENT_TIMESTAMP(3)
+        WHERE RC_RFILE_NO = #{target.rcRfileNo}
     </update>
 
     <update id="updatePolicyExtractFail">

@@ -11,7 +11,10 @@ public class PolicyExtractTarget {
     private String deptNm;
     private String prodRegDate;
     private String prodYear;
+    private String policyCd;
     private String llmPolicyStatus;
+    private String llmPolicyErrMsg;
+    private String llmPolicyUpdt;
     private String llmEventStatus;
     private String llmActivityStatus;
 
@@ -35,8 +38,14 @@ public class PolicyExtractTarget {
     public void setProdRegDate(String prodRegDate) { this.prodRegDate = prodRegDate; }
     public String getProdYear() { return prodYear; }
     public void setProdYear(String prodYear) { this.prodYear = prodYear; }
+    public String getPolicyCd() { return policyCd; }
+    public void setPolicyCd(String policyCd) { this.policyCd = policyCd; }
     public String getLlmPolicyStatus() { return llmPolicyStatus; }
     public void setLlmPolicyStatus(String llmPolicyStatus) { this.llmPolicyStatus = llmPolicyStatus; }
+    public String getLlmPolicyErrMsg() { return llmPolicyErrMsg; }
+    public void setLlmPolicyErrMsg(String llmPolicyErrMsg) { this.llmPolicyErrMsg = llmPolicyErrMsg; }
+    public String getLlmPolicyUpdt() { return llmPolicyUpdt; }
+    public void setLlmPolicyUpdt(String llmPolicyUpdt) { this.llmPolicyUpdt = llmPolicyUpdt; }
     public String getLlmEventStatus() { return llmEventStatus; }
     public void setLlmEventStatus(String llmEventStatus) { this.llmEventStatus = llmEventStatus; }
     public String getLlmActivityStatus() { return llmActivityStatus; }

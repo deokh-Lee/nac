@@ -1,17 +1,12 @@
 package com.saltlux.nac.progress;
 
-public class LlmExtractItemLog {
-    private Long runId;
-    private String subjectType;
-    private String rcCode;
-    private String rcRfileNo;
-    private String rcRitemNo;
-    private String status;
-    private String itemCd;
-    private String itemNm;
-    private String errorMsg;
+public class LlmPolicyMappingResult {
     private String orgNm;
     private String prodYear;
+    private String recordFileNo;
+    private String recordItemNo;
+    private String recordFileTitle;
+    private String recordItemTitle;
     private String govTaskNo;
     private String candidateGovTask;
     private String candidateDetailTask;
@@ -24,28 +19,18 @@ public class LlmExtractItemLog {
     private String reviewExcludeReason;
     private String resultJson;
 
-    public Long getRunId() { return runId; }
-    public void setRunId(Long runId) { this.runId = runId; }
-    public String getSubjectType() { return subjectType; }
-    public void setSubjectType(String subjectType) { this.subjectType = subjectType; }
-    public String getRcCode() { return rcCode; }
-    public void setRcCode(String rcCode) { this.rcCode = rcCode; }
-    public String getRcRfileNo() { return rcRfileNo; }
-    public void setRcRfileNo(String rcRfileNo) { this.rcRfileNo = rcRfileNo; }
-    public String getRcRitemNo() { return rcRitemNo; }
-    public void setRcRitemNo(String rcRitemNo) { this.rcRitemNo = rcRitemNo; }
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-    public String getItemCd() { return itemCd; }
-    public void setItemCd(String itemCd) { this.itemCd = itemCd; }
-    public String getItemNm() { return itemNm; }
-    public void setItemNm(String itemNm) { this.itemNm = itemNm; }
-    public String getErrorMsg() { return errorMsg; }
-    public void setErrorMsg(String errorMsg) { this.errorMsg = errorMsg; }
     public String getOrgNm() { return orgNm; }
     public void setOrgNm(String orgNm) { this.orgNm = orgNm; }
     public String getProdYear() { return prodYear; }
     public void setProdYear(String prodYear) { this.prodYear = prodYear; }
+    public String getRecordFileNo() { return recordFileNo; }
+    public void setRecordFileNo(String recordFileNo) { this.recordFileNo = recordFileNo; }
+    public String getRecordItemNo() { return recordItemNo; }
+    public void setRecordItemNo(String recordItemNo) { this.recordItemNo = recordItemNo; }
+    public String getRecordFileTitle() { return recordFileTitle; }
+    public void setRecordFileTitle(String recordFileTitle) { this.recordFileTitle = recordFileTitle; }
+    public String getRecordItemTitle() { return recordItemTitle; }
+    public void setRecordItemTitle(String recordItemTitle) { this.recordItemTitle = recordItemTitle; }
     public String getGovTaskNo() { return govTaskNo; }
     public void setGovTaskNo(String govTaskNo) { this.govTaskNo = govTaskNo; }
     public String getCandidateGovTask() { return candidateGovTask; }

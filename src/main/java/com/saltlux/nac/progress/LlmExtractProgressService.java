@@ -86,6 +86,15 @@ public class LlmExtractProgressService {
         insertItemLog(runId, subjectType, target, ITEM_STATUS_PASS, itemCd, itemNm, null);
     }
 
+    public void recordPolicyMappingSuccess(Long runId,
+                                           String subjectType,
+                                           PolicyExtractTarget target,
+                                           String itemCd,
+                                           String itemNm,
+                                           LlmPolicyMappingResult mappingResult) {
+        insertItemLog(runId, subjectType, target, ITEM_STATUS_PASS, itemCd, itemNm, null, mappingResult);
+    }
+
     public void recordFail(Long runId,
                            String subjectType,
                            PolicyExtractTarget target,
@@ -163,6 +172,17 @@ public class LlmExtractProgressService {
                                String itemCd,
                                String itemNm,
                                String errorMsg) {
+        insertItemLog(runId, subjectType, target, status, itemCd, itemNm, errorMsg, null);
+    }
+
+    private void insertItemLog(Long runId,
+                               String subjectType,
+                               PolicyExtractTarget target,
+                               String status,
+                               String itemCd,
+                               String itemNm,
+                               String errorMsg,
+                               LlmPolicyMappingResult mappingResult) {
         insertItemLog(
                 runId,
                 subjectType,
@@ -172,7 +192,8 @@ public class LlmExtractProgressService {
                 status,
                 itemCd,
                 itemNm,
-                errorMsg
+                errorMsg,
+                mappingResult
         );
     }
 
@@ -185,6 +206,19 @@ public class LlmExtractProgressService {
                                String itemCd,
                                String itemNm,
                                String errorMsg) {
+        insertItemLog(runId, subjectType, rcCode, rcRfileNo, rcRitemNo, status, itemCd, itemNm, errorMsg, null);
+    }
+
+    private void insertItemLog(Long runId,
+                               String subjectType,
+                               String rcCode,
+                               String rcRfileNo,
+                               String rcRitemNo,
+                               String status,
+                               String itemCd,
+                               String itemNm,
+                               String errorMsg,
+                               LlmPolicyMappingResult mappingResult) {
         if (runId == null) {
             return;
         }
@@ -199,11 +233,33 @@ public class LlmExtractProgressService {
             itemLog.setItemCd(cut(itemCd, 100));
             itemLog.setItemNm(cut(itemNm, 500));
             itemLog.setErrorMsg(cut(errorMsg, 4000));
+            itemLog.setDetailTaskCd(cut(itemCd, 50));
+            itemLog.setCandidateDetailTask(cut(itemNm, 100));
+            applyPolicyMappingResult(itemLog, mappingResult);
             progressMapper.insertItemLog(itemLog);
         } catch (Exception e) {
             log.warn("Failed to save LLM extract item log | runId={} | subjectType={} | status={} | error={}",
                     runId, subjectType, status, safeMessage(e));
         }
+    }
+
+    private void applyPolicyMappingResult(LlmExtractItemLog itemLog, LlmPolicyMappingResult mappingResult) {
+        if (mappingResult == null) {
+            return;
+        }
+        itemLog.setOrgNm(cut(mappingResult.getOrgNm(), 500));
+        itemLog.setProdYear(cut(mappingResult.getProdYear(), 4));
+        itemLog.setGovTaskNo(cut(mappingResult.getGovTaskNo(), 500));
+        itemLog.setCandidateGovTask(cut(mappingResult.getCandidateGovTask(), 500));
+        itemLog.setCandidateDetailTask(cut(mappingResult.getCandidateDetailTask(), 100));
+        itemLog.setDetailTaskCd(cut(mappingResult.getDetailTaskCd(), 50));
+        itemLog.setMatchingTerms(cut(mappingResult.getMatchingTerms(), 500));
+        itemLog.setMatchingSource(cut(mappingResult.getMatchingSource(), 100));
+        itemLog.setCriteriaType(cut(mappingResult.getCriteriaType(), 100));
+        itemLog.setDecisionValue(cut(mappingResult.getDecisionValue(), 50));
+        itemLog.setDecisionReason(cut(mappingResult.getDecisionReason(), 500));
+        itemLog.setReviewExcludeReason(cut(mappingResult.getReviewExcludeReason(), 500));
+        itemLog.setResultJson(mappingResult.getResultJson());
     }
 
     private String emptyToNull(String value) {

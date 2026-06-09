@@ -1,5 +1,7 @@
 package com.saltlux.nac.policy;
 
+import java.util.List;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,6 +16,56 @@ public class PolicyExtractController {
 
     public PolicyExtractController(PolicyExtractService policyExtractService) {
         this.policyExtractService = policyExtractService;
+    }
+
+    @GetMapping("/departments/targets")
+    public ResponseEntity<List<PolicyExtractTarget>> findDepartmentTargets(
+            @RequestParam(required = false, defaultValue = "2023") String transferYear,
+            @RequestParam(required = false, defaultValue = "2012") String prodYear,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset
+    ) {
+        return ResponseEntity.ok(policyExtractService.findDepartmentTargets(transferYear, prodYear, limit, offset));
+    }
+
+    @GetMapping("/departments/items/targets")
+    public ResponseEntity<List<PolicyExtractTarget>> findDepartmentItemCompareTargets(
+            @RequestParam(required = false, defaultValue = "2023") String transferYear,
+            @RequestParam(required = false, defaultValue = "2012") String prodYear,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset
+    ) {
+        return ResponseEntity.ok(policyExtractService.findDepartmentItemCompareTargets(transferYear, prodYear, limit, offset));
+    }
+
+    @PostMapping("/departments")
+    public ResponseEntity<PolicyExtractResult> extractDepartmentBatch(
+            @RequestParam(required = false, defaultValue = "2023") String transferYear,
+            @RequestParam(required = false, defaultValue = "2012") String prodYear,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset
+    ) {
+        return ResponseEntity.ok(policyExtractService.extractDepartmentBatch(transferYear, prodYear, limit, offset));
+    }
+
+    @PostMapping("/departments/file")
+    public ResponseEntity<PolicyExtractResult> extractDepartmentFileBatch(
+            @RequestParam(required = false, defaultValue = "2023") String transferYear,
+            @RequestParam(required = false, defaultValue = "2012") String prodYear,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset
+    ) {
+        return ResponseEntity.ok(policyExtractService.extractDepartmentFileBatch(transferYear, prodYear, limit, offset));
+    }
+
+    @PostMapping("/departments/items")
+    public ResponseEntity<PolicyExtractResult> extractDepartmentItemCompareBatch(
+            @RequestParam(required = false, defaultValue = "2023") String transferYear,
+            @RequestParam(required = false, defaultValue = "2012") String prodYear,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset
+    ) {
+        return ResponseEntity.ok(policyExtractService.extractDepartmentItemCompareBatch(transferYear, prodYear, limit, offset));
     }
 
     @PostMapping
