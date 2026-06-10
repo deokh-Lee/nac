@@ -15,6 +15,7 @@ public class RecordContentChunker {
     private static final int DEFAULT_MAX_CHARS = 3_500;
     private static final int DEFAULT_OVERLAP_CHARS = 350;
     private static final int MIN_CHUNK_CHARS = 120;
+    private static final int SHORT_DOCUMENT_MIN_CONTENT_CHARS = 300;
 
     private static final Pattern LAW_CHAPTER_PATTERN = Pattern.compile("^(제\\s*\\d+\\s*장)\\s*(.*)$");
     private static final Pattern LAW_SECTION_PATTERN = Pattern.compile("^(제\\s*\\d+\\s*절)\\s*(.*)$");
@@ -331,6 +332,9 @@ public class RecordContentChunker {
         if (text.length() > 1_500) {
             return false;
         }
+        if (hasSubstantiveShortContent(text)) {
+            return false;
+        }
         String[] lines = text.split("\\n");
         int nonEmptyLines = 0;
         int metadataLines = 0;
@@ -342,10 +346,10 @@ public class RecordContentChunker {
                 continue;
             }
             nonEmptyLines++;
-            if (trimmed.matches(".*(기관명|부서명|작성일|작성자|문서번호|등록번호|보고서|계획서|검토서|용역명|발주처).*")) {
+            if (containsAny(trimmed, "기관명", "부서명", "작성일", "작성자", "문서번호", "등록번호", "보고서", "계획서", "검토서", "용역명", "발주처")) {
                 metadataLines++;
             }
-            if (trimmed.matches(".*(다\\.|요\\.|함\\.|음\\.)$")) {
+            if (endsWithAny(trimmed, "다.", "요.", "함.", "음.")) {
                 sentenceLikeLines++;
             }
         }
@@ -366,8 +370,31 @@ public class RecordContentChunker {
         if (text.length() > 1_500) {
             return true;
         }
+        if (hasSubstantiveShortContent(text)) {
+            return true;
+        }
         int sentenceEndCount = countMatches(text, Pattern.compile("(다\\.|요\\.|함\\.|음\\.)"));
         return sentenceEndCount >= 3;
+    }
+
+    private boolean hasSubstantiveShortContent(String text) {
+        if (text.length() < SHORT_DOCUMENT_MIN_CONTENT_CHARS) {
+            return false;
+        }
+        if (looksTableLike(text)) {
+            return true;
+        }
+        int sentenceEndCount = countMatches(text, Pattern.compile("[.!?]"));
+        if (sentenceEndCount >= 2) {
+            return true;
+        }
+        int longContentLines = 0;
+        for (String line : text.split("\\n")) {
+            if (line.trim().length() >= 80) {
+                longContentLines++;
+            }
+        }
+        return longContentLines >= 2;
     }
 
     private List<String> splitSentences(String text, ChunkOptions options) {
@@ -479,6 +506,24 @@ public class RecordContentChunker {
             count++;
         }
         return count;
+    }
+
+    private boolean containsAny(String text, String... keywords) {
+        for (String keyword : keywords) {
+            if (text.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean endsWithAny(String text, String... suffixes) {
+        for (String suffix : suffixes) {
+            if (text.endsWith(suffix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private int indexOfAnyLine(String text, String... prefixes) {
